@@ -1,0 +1,73 @@
+name: "🐛 バグ報告 (Bug Report)"
+description: "不具合・エラー・動作不良に関する詳細報告"
+title: "[BUG]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        不具合報告にご協力いただきありがとうございます。迅速な調査のため、可能な限り詳細を記述してください。
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 不具合の概要 (Description)
+      description: どのような問題が発生したか簡潔に記載してください。
+      placeholder: 動画ファイルを追加後にメタデータ一括取得を実行した際、エラー画面が表示される...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 再現手順 (Steps to Reproduce)
+      description: 不具合を再現するための具体的かつ順を追った手順を記載してください。
+      placeholder: |
+        1. 「WPF シミュレータ」タブを開く
+        2. 「ファイル追加」で 'SSIS-123_sample.mp4' を追加する
+        3. 「全選択メタデータ一括取得」をクリックする
+        4. エラーモーダルが表示される
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期待される動作 (Expected Behavior)
+      description: 正常であればどのような動作・結果になるはずだったか記載してください。
+      placeholder: メタデータが取得され、ファイル名プレビューが更新されるはずだった。
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: 実行環境 (OS)
+      description: 使用しているオペレーティングシステムを選択してください。
+      options:
+        - "Windows 11 (64-bit)"
+        - "Windows 10 (64-bit)"
+        - "macOS (Apple Silicon / Intel)"
+        - "Linux (Ubuntu / Debian / Other)"
+        - "Docker / Container"
+    validations:
+      required: true
+
+  - type: input
+    id: node-version
+    attributes:
+      label: Node.js バージョン
+      description: 実行環境の Node.js バージョンを入力してください (例: v20.11.0)。
+      placeholder: "v20.11.0"
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: エラーログ・スタックトレース (Logs)
+      description: コンソール出力や LogViewer、または TroubleshootingModal に表示されたテキストを貼り付けてください。
+      render: text
+      placeholder: "[12:00:01] [Error] [Scraper] Scraping timeout for SSIS-123"
+    validations:
+      required: false

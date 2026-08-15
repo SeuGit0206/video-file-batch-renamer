@@ -1,0 +1,80 @@
+{
+  "name": "video-renamer-tool",
+  "version": "1.12.0",
+  "description": "動画ファイルの作品ID自動抽出・メタデータ同期・一括リネームを行う設計・シミュレーション支援ツール",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/user/video-renamer-tool.git"
+  },
+  "bugs": {
+    "url": "https://github.com/user/video-renamer-tool/issues"
+  },
+  "homepage": "https://github.com/user/video-renamer-tool#readme",
+  "author": "Video Renamer Contributors",
+  "keywords": [
+    "video-renamer",
+    "metadata-extractor",
+    "batch-rename",
+    "playwright",
+    "express",
+    "react",
+    "typescript"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "tsx server.ts",
+    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "start": "node dist/server.cjs",
+    "postinstall": "playwright install chromium",
+    "clean": "rm -rf dist server.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test": "vitest run",
+    "test:unit": "vitest run tests/PlaywrightBrowserService.test.ts tests/HtmlParserService.test.ts tests/MetadataController.test.ts tests/ScrapingOrchestrator.test.ts tests/BrowserContextFactory.test.ts tests/BrowserPageFactory.test.ts tests/ResponseFactory.test.ts tests/ErrorResponseFactory.test.ts tests/BrowserLauncher.test.ts tests/MetadataBuilder.test.ts tests/RetryPolicy.test.ts tests/StealthStrategy.test.ts tests/CdpDiagnosticsService.test.ts tests/DiagnosticsStorageService.test.ts tests/GetMetadataUseCase.test.ts tests/CompositionRoot.test.ts tests/components/*.test.tsx",
+    "test:integration": "vitest run tests/PlaywrightBrowserService.integration.test.ts",
+    "test:e2e": "playwright test",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@google/genai": "^2.4.0",
+    "@tailwindcss/vite": "^4.1.14",
+    "@types/compression": "^1.8.1",
+    "@vitejs/plugin-react": "^5.0.4",
+    "compression": "^1.8.1",
+    "dotenv": "^17.2.3",
+    "express": "^4.21.2",
+    "jszip": "^3.10.1",
+    "lucide-react": "^0.546.0",
+    "motion": "^12.23.24",
+    "playwright": "1.62.1",
+    "react": "^19.0.1",
+    "react-dom": "^19.0.1",
+    "vite": "^6.2.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "@testing-library/jest-dom": "^7.0.0",
+    "@testing-library/react": "^16.3.2",
+    "@types/express": "^4.17.21",
+    "@types/jszip": "^3.4.0",
+    "@types/node": "^22.14.0",
+    "@typescript-eslint/eslint-plugin": "^8.65.0",
+    "@typescript-eslint/parser": "^8.65.0",
+    "@vitest/coverage-v8": "^4.1.10",
+    "autoprefixer": "^10.4.21",
+    "esbuild": "^0.25.0",
+    "eslint": "^10.8.0",
+    "jsdom": "^30.0.1",
+    "tailwindcss": "^4.1.14",
+    "tsx": "^4.21.0",
+    "typescript": "~5.8.2",
+    "typescript-eslint": "^8.65.0",
+    "vite": "^6.2.3",
+    "vitest": "^4.1.10"
+  }
+}

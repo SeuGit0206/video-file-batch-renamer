@@ -1,0 +1,12 @@
+# Code Owners for Video Renamer Tool
+
+# Default global owner
+* @shoumajp
+
+# Workflows and Infrastructure
+/.github/workflows/ @shoumajp
+
+# Documentation and Community Guidelines
+/*.md @shoumajp
+/.github/ISSUE_TEMPLATE/ @shoumajp
+/.github/PULL_REQUEST_TEMPLATE/ @shoumajp

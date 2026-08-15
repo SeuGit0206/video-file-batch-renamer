@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 GitHub Discussions (Q&A / 質問・相談)
+    url: https://github.com/shoumajp/video-renamer-tool/discussions/categories/q-a
+    about: セットアップやトラブルシューティング、使い方に関する質問はこちらへ投稿してください
+  - name: 💡 GitHub Discussions (Ideas / アイデア提案)
+    url: https://github.com/shoumajp/video-renamer-tool/discussions/categories/ideas
+    about: 新機能のアイデアや改善についてのカジュアルな議論・フィードバックはこちらへ投稿してください
+  - name: 🔒 セキュリティ脆弱性の報告
+    url: https://github.com/shoumajp/video-renamer-tool/security/policy
+    about: セキュリティに関する深刻な問題の報告は公開IssueではなくSECURITY.md記載の連絡先へご連絡ください

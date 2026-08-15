@@ -1,0 +1,43 @@
+name: "💡 機能提案・要望 (Feature Request)"
+description: "新機能、リネームルールの追加、UI改善などの提案"
+title: "[FEAT]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        新機能の提案ありがとうございます。機能追加の目的や背景について共有してください。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 解決したい課題・背景 (Problem Statement)
+      description: どのような課題や不便さを解決したいか記載してください。
+      placeholder: 特定のメーカー独自フォーマットのファイル名から作品IDが抽出されないため、毎回手動入力が必要になっている...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: 提案する解決策・機能案 (Proposed Solution)
+      description: 具体的にどのような機能や改善案を希望するか記載してください。
+      placeholder: カスタム抽出正規表現ルールに新しいプリセットパターンを追加する、または...
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 検討した代替案 (Alternatives Considered)
+      description: 他に検討した解決策やワークアラウンド（回避策）があれば記載してください。
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: 補足・参考情報 (Additional Context)
+      description: 画面のモックアップ案や参考画像、類似のツール例などがあれば添付・記述してください。
+    validations:
+      required: false

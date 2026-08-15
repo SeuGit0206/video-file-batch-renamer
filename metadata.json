@@ -1,0 +1,8 @@
+{
+  "name": "動画ファイル一括リネームツール",
+  "description": "C# .NET 8 WPF/MVVMアーキテクチャに基づいた、動画ファイルの作品ID自動抽出・メタデータ同期・一括リネームを行う設計・シミュレーション支援ツールです。",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
