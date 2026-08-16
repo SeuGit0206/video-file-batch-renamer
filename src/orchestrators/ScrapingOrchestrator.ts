@@ -22,6 +22,113 @@ import { MissAvProvider } from '../providers/MissAvProvider';
 import type { IMetricsCollector } from '../metrics/IMetricsCollector';
 import { NullMetricsCollector } from '../metrics/NullMetricsCollector';
 
+export interface ScrapingOrchestratorDependencies {
+  providerRegistry?: IProviderRegistry;
+  customSteps?: IScrapingStep[];
+  logger?: ILogger;
+  settingsProvider?: BrowserSettingsProvider;
+  configFactory?: BrowserConfigFactory;
+  metadataBuilder?: IMetadataBuilder;
+  retryPolicy?: IRetryPolicy;
+  stealthStrategy?: IStealthStrategy;
+  diagnosticsStorageService?: IDiagnosticsStorageService;
+  cdpDiagnosticsService?: ICdpDiagnosticsService;
+  metricsCollector?: IMetricsCollector;
+}
+
+function normalizeDependencies(
+  depsOrLegacy?: ScrapingOrchestratorDependencies | IProviderRegistry | IScrapingStep[] | BrowserSettingsProvider,
+  legacyArg2?: ILogger | BrowserConfigFactory,
+  legacyArg3?: BrowserSettingsProvider | ILogger,
+  legacyArg4?: BrowserConfigFactory | IMetadataBuilder,
+  legacyArg5?: IMetadataBuilder | IRetryPolicy,
+  legacyArg6?: IRetryPolicy | IStealthStrategy,
+  legacyArg7?: IStealthStrategy | IDiagnosticsStorageService,
+  legacyArg8?: IDiagnosticsStorageService | ICdpDiagnosticsService,
+  legacyArg9?: ICdpDiagnosticsService,
+  legacyArg10?: IMetricsCollector
+): ScrapingOrchestratorDependencies {
+  if (depsOrLegacy && typeof depsOrLegacy === 'object' && !Array.isArray(depsOrLegacy) && !('getProvider' in depsOrLegacy) && !(depsOrLegacy instanceof BrowserSettingsProvider)) {
+    return depsOrLegacy as ScrapingOrchestratorDependencies;
+  }
+
+  const result: ScrapingOrchestratorDependencies = {};
+
+  if (Array.isArray(depsOrLegacy)) {
+    result.customSteps = depsOrLegacy;
+  } else if (depsOrLegacy && 'getProvider' in depsOrLegacy) {
+    result.providerRegistry = depsOrLegacy as IProviderRegistry;
+  } else if (depsOrLegacy instanceof BrowserSettingsProvider) {
+    result.settingsProvider = depsOrLegacy;
+  }
+
+  if (legacyArg2) {
+    if ('info' in legacyArg2) {
+      result.logger = legacyArg2 as ILogger;
+    } else if (legacyArg2 instanceof BrowserConfigFactory) {
+      result.configFactory = legacyArg2;
+    }
+  }
+
+  if (legacyArg3) {
+    if (legacyArg3 instanceof BrowserSettingsProvider) {
+      result.settingsProvider = legacyArg3;
+    } else if ('info' in legacyArg3) {
+      result.logger = legacyArg3 as ILogger;
+    }
+  }
+
+  if (legacyArg4) {
+    if (legacyArg4 instanceof BrowserConfigFactory) {
+      result.configFactory = legacyArg4;
+    } else if ('build' in legacyArg4) {
+      result.metadataBuilder = legacyArg4 as IMetadataBuilder;
+    }
+  }
+
+  if (legacyArg5) {
+    if ('build' in legacyArg5) {
+      result.metadataBuilder = legacyArg5 as IMetadataBuilder;
+    } else if ('shouldRetry' in legacyArg5 || 'execute' in legacyArg5 || 'getMaxRetries' in legacyArg5) {
+      result.retryPolicy = legacyArg5 as IRetryPolicy;
+    }
+  }
+
+  if (legacyArg6) {
+    if ('shouldRetry' in legacyArg6 || 'execute' in legacyArg6 || 'getMaxRetries' in legacyArg6) {
+      result.retryPolicy = legacyArg6 as IRetryPolicy;
+    } else if ('applyStealthContextOptions' in legacyArg6 || 'apply' in legacyArg6 || 'handleCloudflareDetected' in legacyArg6) {
+      result.stealthStrategy = legacyArg6 as IStealthStrategy;
+    }
+  }
+
+  if (legacyArg7) {
+    if ('applyStealthContextOptions' in legacyArg7 || 'apply' in legacyArg7 || 'handleCloudflareDetected' in legacyArg7) {
+      result.stealthStrategy = legacyArg7 as IStealthStrategy;
+    } else if ('saveDiagnostics' in legacyArg7) {
+      result.diagnosticsStorageService = legacyArg7 as IDiagnosticsStorageService;
+    }
+  }
+
+  if (legacyArg8) {
+    if ('saveDiagnostics' in legacyArg8) {
+      result.diagnosticsStorageService = legacyArg8 as IDiagnosticsStorageService;
+    } else if ('captureCdpDiagnostics' in legacyArg8 || 'setupCdpDiagnostics' in legacyArg8) {
+      result.cdpDiagnosticsService = legacyArg8 as ICdpDiagnosticsService;
+    }
+  }
+
+  if (legacyArg9) {
+    result.cdpDiagnosticsService = legacyArg9;
+  }
+
+  if (legacyArg10) {
+    result.metricsCollector = legacyArg10;
+  }
+
+  return result;
+}
+
 export class ScrapingOrchestrator {
   private logger: ILogger;
   private providerRegistry?: IProviderRegistry;
@@ -36,9 +143,9 @@ export class ScrapingOrchestrator {
   private metricsCollector: IMetricsCollector;
 
   constructor(
-    providerRegistryOrStepsOrSettings?: IProviderRegistry | IScrapingStep[] | BrowserSettingsProvider,
-    loggerOrConfigFactory?: ILogger | BrowserConfigFactory,
-    settingsProviderOrLogger?: BrowserSettingsProvider | ILogger,
+    dependenciesOrLegacy?: ScrapingOrchestratorDependencies | IProviderRegistry | IScrapingStep[] | BrowserSettingsProvider,
+    legacyLogger?: ILogger | BrowserConfigFactory,
+    legacySettingsProvider?: BrowserSettingsProvider | ILogger,
     configFactoryOrMetadataBuilder?: BrowserConfigFactory | IMetadataBuilder,
     metadataBuilderOrRetryPolicy?: IMetadataBuilder | IRetryPolicy,
     retryPolicyOrStealthStrategy?: IRetryPolicy | IStealthStrategy,
@@ -47,42 +154,36 @@ export class ScrapingOrchestrator {
     cdpDiagnosticsService?: ICdpDiagnosticsService,
     metricsCollector?: IMetricsCollector
   ) {
-    this.metricsCollector = metricsCollector || new NullMetricsCollector();
+    // オブジェクト形式またはレガシー引数の正規化
+    const deps = normalizeDependencies(
+      dependenciesOrLegacy,
+      legacyLogger,
+      legacySettingsProvider,
+      configFactoryOrMetadataBuilder,
+      metadataBuilderOrRetryPolicy,
+      retryPolicyOrStealthStrategy,
+      stealthStrategyOrDiagStorage,
+      diagnosticsStorageServiceOrCdp,
+      cdpDiagnosticsService,
+      metricsCollector
+    );
 
-    // 依存サービス初期化の基本設定
-    if (providerRegistryOrStepsOrSettings && 'getProvider' in providerRegistryOrStepsOrSettings) {
-      // 1. IProviderRegistry が渡された場合
-      this.providerRegistry = providerRegistryOrStepsOrSettings;
-      this.logger = (loggerOrConfigFactory as ILogger) || LoggingService.getInstance();
-      this.settingsProvider = (settingsProviderOrLogger as BrowserSettingsProvider) || new BrowserSettingsProvider();
-      this.configFactory = (configFactoryOrMetadataBuilder as BrowserConfigFactory) || new BrowserConfigFactory({ settings: this.settingsProvider.getSettings() });
-      this.metadataBuilder = (metadataBuilderOrRetryPolicy as IMetadataBuilder) || new MetadataBuilder();
-      this.retryPolicy = (retryPolicyOrStealthStrategy as IRetryPolicy) || new RetryPolicy();
-      this.stealthStrategy = (stealthStrategyOrDiagStorage as IStealthStrategy) || new StealthStrategy();
-      this.diagnosticsStorageService = (diagnosticsStorageServiceOrCdp as IDiagnosticsStorageService) || new DiagnosticsStorageService(this.logger);
-      this.cdpDiagnosticsService = cdpDiagnosticsService || new CdpDiagnosticsService(this.logger, this.diagnosticsStorageService);
-    } else if (Array.isArray(providerRegistryOrStepsOrSettings)) {
-      // 2. IScrapingStep[] が直接渡された場合 (テスト等のカスタムステップ指定)
-      this.customSteps = providerRegistryOrStepsOrSettings;
-      this.logger = (loggerOrConfigFactory as ILogger) || LoggingService.getInstance();
-      this.settingsProvider = (settingsProviderOrLogger as BrowserSettingsProvider) || new BrowserSettingsProvider();
-      this.configFactory = (configFactoryOrMetadataBuilder as BrowserConfigFactory) || new BrowserConfigFactory({ settings: this.settingsProvider.getSettings() });
-      this.metadataBuilder = (metadataBuilderOrRetryPolicy as IMetadataBuilder) || new MetadataBuilder();
-      this.retryPolicy = (retryPolicyOrStealthStrategy as IRetryPolicy) || new RetryPolicy();
-      this.stealthStrategy = (stealthStrategyOrDiagStorage as IStealthStrategy) || new StealthStrategy();
-      this.diagnosticsStorageService = (diagnosticsStorageServiceOrCdp as IDiagnosticsStorageService) || new DiagnosticsStorageService(this.logger);
-      this.cdpDiagnosticsService = cdpDiagnosticsService || new CdpDiagnosticsService(this.logger, this.diagnosticsStorageService);
+    this.logger = deps.logger ?? LoggingService.getInstance();
+    this.metricsCollector = deps.metricsCollector ?? new NullMetricsCollector();
+    this.settingsProvider = deps.settingsProvider ?? new BrowserSettingsProvider();
+    this.configFactory = deps.configFactory ?? new BrowserConfigFactory({ settings: this.settingsProvider.getSettings() });
+    this.metadataBuilder = deps.metadataBuilder ?? new MetadataBuilder();
+    this.retryPolicy = deps.retryPolicy ?? new RetryPolicy();
+    this.stealthStrategy = deps.stealthStrategy ?? new StealthStrategy();
+    this.diagnosticsStorageService = deps.diagnosticsStorageService ?? new DiagnosticsStorageService(this.logger);
+    this.cdpDiagnosticsService = deps.cdpDiagnosticsService ?? new CdpDiagnosticsService(this.logger, this.diagnosticsStorageService);
+
+    if (deps.customSteps) {
+      this.customSteps = deps.customSteps;
+    } else if (deps.providerRegistry) {
+      this.providerRegistry = deps.providerRegistry;
     } else {
-      // 3. レジストリもステップも渡されていない場合 (既存コンストラクタ互換: デフォルトでProviderRegistry & MissAvProviderを生成)
-      this.settingsProvider = (providerRegistryOrStepsOrSettings as BrowserSettingsProvider) || new BrowserSettingsProvider();
-      this.configFactory = (loggerOrConfigFactory as BrowserConfigFactory) || new BrowserConfigFactory({ settings: this.settingsProvider.getSettings() });
-      this.logger = (settingsProviderOrLogger as ILogger) || LoggingService.getInstance();
-      this.metadataBuilder = (configFactoryOrMetadataBuilder as IMetadataBuilder) || new MetadataBuilder();
-      this.retryPolicy = (metadataBuilderOrRetryPolicy as IRetryPolicy) || new RetryPolicy();
-      this.stealthStrategy = (retryPolicyOrStealthStrategy as IStealthStrategy) || new StealthStrategy();
-      this.diagnosticsStorageService = (stealthStrategyOrDiagStorage as IDiagnosticsStorageService) || new DiagnosticsStorageService(this.logger);
-      this.cdpDiagnosticsService = (diagnosticsStorageServiceOrCdp as ICdpDiagnosticsService) || new CdpDiagnosticsService(this.logger, this.diagnosticsStorageService);
-
+      // デフォルト: ProviderRegistry & MissAvProvider を生成・登録
       const registry = new ProviderRegistry();
       const missAvProvider = new MissAvProvider(
         this.settingsProvider,
@@ -103,7 +204,7 @@ export class ScrapingOrchestrator {
    * 静的エントリーポイント (ファサード)
    */
   public static async fetchMissAVMetadata(productId: string, logger?: ILogger): Promise<ScrapedMetadata> {
-    const orchestrator = new ScrapingOrchestrator(undefined, undefined, logger);
+    const orchestrator = new ScrapingOrchestrator({ logger });
     return orchestrator.fetch(productId);
   }
 

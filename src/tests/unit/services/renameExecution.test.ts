@@ -67,4 +67,82 @@ describe('RenameExecutionService Unit Test', () => {
     expect(batchResult.success).toBe(false);
     expect(batchResult.errors.length).toBe(1);
   });
+
+  describe('Windows 予約デバイス名の多層防御バリデーション', () => {
+    const reservedNames = [
+      'CON',
+      'con',
+      'CON.txt',
+      'PRN',
+      'AUX',
+      'NUL.mp4',
+      'COM1',
+      'COM9.txt',
+      'LPT1',
+      'LPT9.mp4',
+    ];
+
+    reservedNames.forEach((name) => {
+      it(`Windows予約デバイス名 "${name}" は検証で拒否される`, () => {
+        const item: RenameItem = {
+          id: `test-reserved-${name}`,
+          originalName: 'source.mp4',
+          proposedName: name,
+          status: 'pending',
+        };
+
+        const result = service.executeItem(item);
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('Windowsの予約デバイス名');
+      });
+    });
+
+    const validEdgeCases = [
+      'video.mp4',
+      'CONTEST.mp4',
+      'COM10.mp4',
+      'LPT10.mp4',
+      'my-con.mp4',
+    ];
+
+    validEdgeCases.forEach((name) => {
+      it(`予約名に類似するが正当なファイル名 "${name}" は正常に許可される`, () => {
+        const item: RenameItem = {
+          id: `test-valid-${name}`,
+          originalName: 'source.mp4',
+          proposedName: name,
+          status: 'pending',
+        };
+
+        const result = service.executeItem(item);
+        expect(result.success).toBe(true);
+        expect(result.newName).toBe(name);
+        expect(result.error).toBeUndefined();
+      });
+    });
+  });
+
+  describe('末尾文字（ドット・スペース）のバリデーション', () => {
+    const invalidEndNames = [
+      'example.',
+      'example ',
+      'video.mp4.',
+      'video.mp4 ',
+    ];
+
+    invalidEndNames.forEach((name) => {
+      it(`末尾にドットまたはスペースが含まれるファイル名 "${name}" は拒否される`, () => {
+        const item: RenameItem = {
+          id: `test-invalid-end-${name}`,
+          originalName: 'source.mp4',
+          proposedName: name,
+          status: 'pending',
+        };
+
+        const result = service.executeItem(item);
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('末尾にスペースまたはドットを使用することはできません');
+      });
+    });
+  });
 });

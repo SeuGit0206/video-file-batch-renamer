@@ -1,6 +1,7 @@
 import React from 'react';
 import { Terminal, Code2, Layers, Upload, Sliders, Info } from 'lucide-react';
 import { ExportButton } from './export/ExportButton';
+import { APP_VERSION_TAG } from '../constants';
 
 interface HeaderProps {
   activeTab: 'simulator' | 'code' | 'architecture';
@@ -17,7 +18,7 @@ export const Header: React.FC<HeaderProps> = React.memo(({ activeTab, setActiveT
       <div>
         <div className="flex items-center gap-2">
           <span className="bg-[#141414] text-white text-[10px] font-mono px-2 py-0.5 font-bold uppercase tracking-widest">
-            Production v1.12.0
+            Production {APP_VERSION_TAG}
           </span>
           <span className="text-xs font-mono text-[#141414]/60">React + TypeScript / Clean Architecture</span>
         </div>

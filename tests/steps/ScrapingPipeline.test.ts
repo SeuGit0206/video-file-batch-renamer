@@ -63,7 +63,7 @@ describe('Scraping Pipeline & Steps Test Suite', () => {
       }
     };
 
-    const orchestrator = new ScrapingOrchestrator([step1, step2], mockLogger);
+    const orchestrator = new ScrapingOrchestrator({ customSteps: [step1, step2], logger: mockLogger });
     const result = await orchestrator.fetch('ssis-001');
 
     expect(executionOrder).toEqual(['step1', 'step2']);
@@ -96,7 +96,7 @@ describe('Scraping Pipeline & Steps Test Suite', () => {
       }
     };
 
-    const orchestrator = new ScrapingOrchestrator([step1, step2], mockLogger);
+    const orchestrator = new ScrapingOrchestrator({ customSteps: [step1, step2], logger: mockLogger });
     const result = await orchestrator.fetch('ssis-002');
 
     expect(executionOrder).toEqual(['step1']);

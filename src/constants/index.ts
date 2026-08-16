@@ -7,3 +7,4 @@ export * from './browser';
 export * from './cloudflare';
 export * from './file';
 export * from './log';
+export * from './version';

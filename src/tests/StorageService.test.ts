@@ -1,14 +1,15 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach } from 'vitest';
 import { StorageService } from '../services/StorageService';
+import { APP_VERSION } from '../constants';
 
-describe('StorageService (Phase 60)', () => {
+describe('StorageService (Phase 60 & Phase 74)', () => {
   beforeEach(() => {
     localStorage.clear();
   });
 
   describe('exportSettings & parseSettingsJson', () => {
-    it('should export settings to JSON string with version and timestamp', () => {
+    it('should export settings to JSON string with current APP_VERSION and timestamp', () => {
       const settings = {
         renameTemplate: '{title}',
         geminiApiKey: 'test-key',
@@ -23,16 +24,36 @@ describe('StorageService (Phase 60)', () => {
       };
 
       const jsonStr = StorageService.exportSettings(settings);
-      expect(jsonStr).toContain('"version": "1.4.0"');
+      expect(jsonStr).toContain(`"version": "${APP_VERSION}"`);
       expect(jsonStr).toContain('"renameTemplate": "{title}"');
 
       const parsed = StorageService.parseSettingsJson(jsonStr);
+      expect(parsed.version).toBe(APP_VERSION);
       expect(parsed.renameTemplate).toBe('{title}');
       expect(parsed.geminiApiKey).toBe('test-key');
     });
 
+    it('should maintain backward compatibility when importing legacy format JSON (e.g. version 1.4.0)', () => {
+      const legacyJson = JSON.stringify({
+        version: '1.4.0',
+        exportedAt: '2026-01-01T00:00:00.000Z',
+        renameTemplate: '{id}_{title}',
+        geminiApiKey: 'legacy-key',
+      });
+
+      const parsed = StorageService.parseSettingsJson(legacyJson);
+      expect(parsed.version).toBe('1.4.0');
+      expect(parsed.renameTemplate).toBe('{id}_{title}');
+      expect(parsed.geminiApiKey).toBe('legacy-key');
+    });
+
     it('should throw error on invalid JSON string input', () => {
       expect(() => StorageService.parseSettingsJson('invalid json')).toThrow('インポートエラー');
+    });
+
+    it('should throw error on non-object JSON input (e.g. primitive or null)', () => {
+      expect(() => StorageService.parseSettingsJson('null')).toThrow('インポートエラー');
+      expect(() => StorageService.parseSettingsJson('"string"')).toThrow('インポートエラー');
     });
   });
 
@@ -77,7 +98,7 @@ describe('StorageService (Phase 60)', () => {
   });
 
   describe('Backup & Restore', () => {
-    it('should create and retrieve backups', () => {
+    it('should create and retrieve backups with current APP_VERSION', () => {
       const settings = {
         renameTemplate: '{id}',
         geminiApiKey: '',
@@ -93,10 +114,35 @@ describe('StorageService (Phase 60)', () => {
 
       const backup = StorageService.createBackup(settings, [], 'テストバックアップ');
       expect(backup.note).toBe('テストバックアップ');
+      expect(backup.settings.version).toBe(APP_VERSION);
 
       const backups = StorageService.getBackups();
       expect(backups.length).toBe(1);
       expect(backups[0].id).toBe(backup.id);
+      expect(backups[0].settings.version).toBe(APP_VERSION);
+    });
+
+    it('should maintain max 10 backups limit when creating multiple backups', () => {
+      const settings = {
+        renameTemplate: '{id}',
+        geminiApiKey: '',
+        geminiModel: '',
+        geminiPromptTemplate: '',
+        customRegex: '',
+        enableScraper: true,
+        enableGeminiFallback: true,
+        autoExtractCode: true,
+        maxConcurrentScrapes: 1,
+        replacementRules: [],
+      };
+
+      for (let i = 0; i < 15; i++) {
+        StorageService.createBackup(settings, [], `Backup ${i}`);
+      }
+
+      const backups = StorageService.getBackups();
+      expect(backups.length).toBe(10);
+      expect(backups[0].note).toBe('Backup 14');
     });
 
     it('should delete a backup', () => {
@@ -122,3 +168,4 @@ describe('StorageService (Phase 60)', () => {
     });
   });
 });
+

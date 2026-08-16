@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { 
   Search, FileSpreadsheet, Cpu, Play, Download, Trash2, 
   CheckCircle2, RefreshCw, 
@@ -33,7 +33,10 @@ import { container } from './composition/container';
 import type { ExportData, ExportTarget } from './types/export';
 import type { ImportResult, ImportTarget } from './types/import';
 import type { ProcessRecord } from './services/statistics/StatisticsService';
-import type { RuleDefinition, RulePreset } from './types/rule';
+import type { RulePreset } from './types/rule';
+import { useAppSettings } from './hooks/useAppSettings';
+import { useMetadataSync } from './hooks/useMetadataSync';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 
 export default function App() {
   // Rule Engine Services (Container経由)
@@ -61,6 +64,43 @@ export default function App() {
     return { executionService, transaction, undoRedoManager };
   }, []);
 
+  // Application Settings & Configuration Management (Hook)
+  const {
+    renameTemplate,
+    setRenameTemplate,
+    regexPattern,
+    setRegexPattern,
+    skipDuplicates,
+    setSkipDuplicates,
+    useCache,
+    setUseCache,
+    rules,
+    setRules,
+    ruleEnabled,
+    setRuleEnabled,
+    cookiePath,
+    setCookiePath,
+    logRetentionDays,
+    setLogRetentionDays,
+    maxConcurrency,
+    setMaxConcurrency,
+    accessDelayMs,
+    setAccessDelayMs,
+    cacheSavePath,
+    setCacheSavePath,
+    showBrowser,
+    setShowBrowser,
+    handleExportAppConfig,
+    handleImportAppConfig,
+  } = useAppSettings();
+
+  // Persistent Metadata Cache Management (Hook)
+  const {
+    metadataCache,
+    setMetadataCache,
+    updateMetadataCache,
+  } = useMetadataSync();
+
   // Navigation & UI States
   const [activeTab, setActiveTab] = useState<'simulator' | 'code' | 'architecture' | 'tests'>('simulator');
   const [selectedPhaseId, setSelectedPhaseId] = useState<number>(1);
@@ -75,57 +115,27 @@ export default function App() {
   const [editingFile, setEditingFile] = useState<VideoFile | null>(null);
   const [currentErrorDetails, setCurrentErrorDetails] = useState<AppErrorDetails | null>(null);
 
-  // Global Keyboard Shortcuts (Step 2 UX)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't trigger when inside inputs or textareas unless Esc
-      const isInput = ['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName);
+  // Global Keyboard Shortcuts (Hook)
+  useKeyboardShortcuts({
+    onCloseAllModals: () => {
+      setIsExportModalOpen(false);
+      setIsImportModalOpen(false);
+      setIsRuleEditorOpen(false);
+      setIsRenameExecutionModalOpen(false);
+      setIsAppInfoModalOpen(false);
+      setCurrentErrorDetails(null);
+    },
+    onOpenRenameExecutionModal: () => setIsRenameExecutionModalOpen(true),
+    onOpenImportModal: () => setIsImportModalOpen(true),
+    onOpenRuleEditor: () => setIsRuleEditorOpen(true),
+    onOpenExportModal: () => setIsExportModalOpen(true),
+  });
 
-      if (e.key === 'Escape') {
-        setIsExportModalOpen(false);
-        setIsImportModalOpen(false);
-        setIsRuleEditorOpen(false);
-        setIsRenameExecutionModalOpen(false);
-        setIsAppInfoModalOpen(false);
-        setCurrentErrorDetails(null);
-        return;
-      }
-
-      if (isInput) return;
-
-      if (e.ctrlKey || e.metaKey) {
-        if (e.shiftKey && e.key.toUpperCase() === 'E') {
-          e.preventDefault();
-          setIsRenameExecutionModalOpen(true);
-        } else if (e.key.toUpperCase() === 'I') {
-          e.preventDefault();
-          setIsImportModalOpen(true);
-        } else if (e.key.toUpperCase() === 'R') {
-          e.preventDefault();
-          setIsRuleEditorOpen(true);
-        } else if (e.key.toUpperCase() === 'E') {
-          e.preventDefault();
-          setIsExportModalOpen(true);
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
-
-  // Dynamic Rule Engine States
-  const [ruleEnabled, setRuleEnabled] = useState<boolean>(false);
-  const [rules, setRules] = useState<RuleDefinition[]>([]);
   const [_activePreset, _setActivePreset] = useState<RulePreset | null>(null);
 
   // WPF Simulator State
   const [files, setFiles] = useState<VideoFile[]>(initialFiles);
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
-  const [renameTemplate, setRenameTemplate] = useState<string>('{title}');
-  const [regexPattern, setRegexPattern] = useState<string>('(?i)\\b([a-z]{2,6})-([0-9]{3,5})\\b');
-  const [skipDuplicates, setSkipDuplicates] = useState<boolean>(true);
-  const [useCache, setUseCache] = useState<boolean>(true);
   const [dragActive, setDragActive] = useState<boolean>(false);
   const [newFileNameInput, setNewFileNameInput] = useState<string>('');
 
@@ -152,123 +162,6 @@ export default function App() {
 
   // Playwright Browser Simulation visual state
   const [_browserState, setBrowserState] = useState<'idle' | 'initializing' | 'loading_cookies' | 'navigating' | 'cloudflare_bypassing' | 'parsing_dom' | 'completed' | 'error'>('idle');
-
-  // Persistence, configuration and logs states
-  const [cookiePath, setCookiePath] = useState<string>(() => localStorage.getItem('cfg_cookie_path') || 'logs/cookies.json');
-  const [logRetentionDays, setLogRetentionDays] = useState<number>(() => Number(localStorage.getItem('cfg_log_days') || '30'));
-  const [maxConcurrency, setMaxConcurrency] = useState<number>(() => Number(localStorage.getItem('cfg_max_concurrency') || '1'));
-  const [accessDelayMs, setAccessDelayMs] = useState<number>(() => Number(localStorage.getItem('cfg_delay_ms') || '1500'));
-  const [cacheSavePath, setCacheSavePath] = useState<string>(() => localStorage.getItem('cfg_cache_path') || 'logs/cache.db');
-  const [showBrowser, setShowBrowser] = useState<boolean>(() => localStorage.getItem('cfg_show_browser') === 'true');
-
-  // Save config settings to localStorage on change
-  useEffect(() => {
-    localStorage.setItem('cfg_cookie_path', cookiePath);
-    localStorage.setItem('cfg_log_days', String(logRetentionDays));
-    localStorage.setItem('cfg_max_concurrency', String(maxConcurrency));
-    localStorage.setItem('cfg_delay_ms', String(accessDelayMs));
-    localStorage.setItem('cfg_cache_path', cacheSavePath);
-    localStorage.setItem('cfg_show_browser', String(showBrowser));
-  }, [cookiePath, logRetentionDays, maxConcurrency, accessDelayMs, cacheSavePath, showBrowser]);
-
-  // Configuration Export / Import Handlers (Step 4 Operations)
-  const handleExportAppConfig = useCallback(() => {
-    return JSON.stringify(
-      {
-        version: 'v1.9.0',
-        exportedAt: new Date().toISOString(),
-        settings: {
-          renameTemplate,
-          regexPattern,
-          skipDuplicates,
-          useCache,
-          cookiePath,
-          logRetentionDays,
-          maxConcurrency,
-          accessDelayMs,
-          cacheSavePath,
-          showBrowser,
-        },
-        rules,
-        ruleEnabled,
-      },
-      null,
-      2
-    );
-  }, [renameTemplate, regexPattern, skipDuplicates, useCache, cookiePath, logRetentionDays, maxConcurrency, accessDelayMs, cacheSavePath, showBrowser, rules, ruleEnabled]);
-
-  const handleImportAppConfig = useCallback((configJson: string): boolean => {
-    try {
-      const parsed = JSON.parse(configJson);
-      if (parsed.settings) {
-        if (parsed.settings.renameTemplate) setRenameTemplate(parsed.settings.renameTemplate);
-        if (parsed.settings.regexPattern) setRegexPattern(parsed.settings.regexPattern);
-        if (typeof parsed.settings.skipDuplicates === 'boolean') setSkipDuplicates(parsed.settings.skipDuplicates);
-        if (typeof parsed.settings.useCache === 'boolean') setUseCache(parsed.settings.useCache);
-      }
-      if (Array.isArray(parsed.rules)) {
-        setRules(parsed.rules);
-      }
-      if (typeof parsed.ruleEnabled === 'boolean') {
-        setRuleEnabled(parsed.ruleEnabled);
-      }
-      return true;
-    } catch {
-      return false;
-    }
-  }, []);
-
-  // Persistent Metadata Cache
-  const [metadataCache, setMetadataCache] = useState<{ [id: string]: Record<string, unknown> }>(() => {
-    try {
-      const saved = localStorage.getItem('video_renamer_meta_cache');
-      return saved ? JSON.parse(saved) : {};
-    } catch {
-      return {};
-    }
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('video_renamer_meta_cache', JSON.stringify(metadataCache));
-    } catch {
-      // ignore storage limits
-    }
-  }, [metadataCache]);
-
-  const updateMetadataCache = useCallback((id: string, metadata: ScrapedMetadata | Record<string, unknown>) => {
-    setMetadataCache(prev => {
-      const next = { ...prev, [id]: metadata };
-      try {
-        localStorage.setItem('video_renamer_meta_cache', JSON.stringify(next));
-      } catch {
-        // ignore
-      }
-      return next;
-    });
-  }, []);
-
-  const _invalidateMetadataCache = useCallback((id: string) => {
-    setMetadataCache(prev => {
-      const next = { ...prev };
-      delete next[id];
-      try {
-        localStorage.setItem('video_renamer_meta_cache', JSON.stringify(next));
-      } catch {
-        // ignore
-      }
-      return next;
-    });
-  }, []);
-
-  const _clearMetadataCache = useCallback(() => {
-    setMetadataCache({});
-    try {
-      localStorage.removeItem('video_renamer_meta_cache');
-    } catch {
-      // ignore
-    }
-  }, []);
 
   // Rollback / Undo State History
   const [renameHistory, setRenameHistory] = useState<{ filesState: VideoFile[] }[]>([]);

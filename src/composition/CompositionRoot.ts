@@ -406,18 +406,18 @@ export class CompositionRoot implements ICompositionRoot {
     registry.register(missAvProvider);
     this.providerRegistry = registry;
 
-    this.scrapingOrchestrator = new ScrapingOrchestrator(
-      this.providerRegistry,
-      this.logger,
-      this.settingsProvider,
-      this.configFactory,
-      this.metadataBuilder,
-      this.retryPolicy,
-      this.stealthStrategy,
-      this.diagnosticsStorageService,
-      this.cdpDiagnosticsService,
-      this.metricsCollector
-    );
+    this.scrapingOrchestrator = new ScrapingOrchestrator({
+      providerRegistry: this.providerRegistry,
+      logger: this.logger,
+      settingsProvider: this.settingsProvider,
+      configFactory: this.configFactory,
+      metadataBuilder: this.metadataBuilder,
+      retryPolicy: this.retryPolicy,
+      stealthStrategy: this.stealthStrategy,
+      diagnosticsStorageService: this.diagnosticsStorageService,
+      cdpDiagnosticsService: this.cdpDiagnosticsService,
+      metricsCollector: this.metricsCollector,
+    });
 
     const baseUseCase = new GetMetadataUseCase(
       (productId: string) => this.scrapingOrchestrator.fetch(productId)

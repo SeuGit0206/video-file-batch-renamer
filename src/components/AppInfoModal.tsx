@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Info, Terminal, Download, Upload, FileText, Check, Copy, History, Sparkles, X } from 'lucide-react';
+import { APP_RELEASE_NAME } from '../constants';
 
 interface AppInfoModalProps {
   isOpen: boolean;
@@ -20,7 +21,7 @@ export const AppInfoModal: React.FC<AppInfoModalProps> = ({
 
   if (!isOpen) return null;
 
-  const appVersion = 'v1.12.0 (Phase 73 Final Release)';
+  const appVersion = APP_RELEASE_NAME;
   const architecture = 'Clean Architecture Engine (React + TypeScript + Express)';
 
   const changelog = [

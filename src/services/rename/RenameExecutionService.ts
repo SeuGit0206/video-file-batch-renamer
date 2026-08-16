@@ -1,8 +1,15 @@
 import type { IRenameExecutionService } from './IRenameExecutionService';
 import type { RenameItem, RenameResultItem, RenameExecutionResult } from '../../types/rename';
+import {
+  WINDOWS_INVALID_CHARS_REGEX,
+  WINDOWS_RESERVED_NAMES_REGEX,
+  WINDOWS_INVALID_END_CHARS_REGEX,
+} from '../../constants';
 
 export class RenameExecutionService implements IRenameExecutionService {
-  private invalidCharsRegex = /[\\/:*?"<>|]/;
+  private invalidCharsRegex = WINDOWS_INVALID_CHARS_REGEX;
+  private reservedNamesRegex = WINDOWS_RESERVED_NAMES_REGEX;
+  private invalidEndCharsRegex = WINDOWS_INVALID_END_CHARS_REGEX;
 
   public validateRename(item: RenameItem): { valid: boolean; error?: string } {
     if (!item.proposedName || item.proposedName.trim() === '') {
@@ -11,6 +18,14 @@ export class RenameExecutionService implements IRenameExecutionService {
 
     if (this.invalidCharsRegex.test(item.proposedName)) {
       return { valid: false, error: 'ファイル名に使用できない文字が含まれています (\\ / : * ? " < > |)' };
+    }
+
+    if (this.invalidEndCharsRegex.test(item.proposedName)) {
+      return { valid: false, error: 'ファイル名の末尾にスペースまたはドットを使用することはできません' };
+    }
+
+    if (this.reservedNamesRegex.test(item.proposedName)) {
+      return { valid: false, error: 'Windowsの予約デバイス名 (CON, PRN, AUX, NUL, COM1-9, LPT1-9) は使用できません' };
     }
 
     if (item.originalName === item.proposedName) {

@@ -52,7 +52,7 @@ describe('ScrapingProviderPipeline Integration Test Suite', () => {
 
     registry.register(providerA);
 
-    const orchestrator = new ScrapingOrchestrator(registry, mockLogger);
+    const orchestrator = new ScrapingOrchestrator({ providerRegistry: registry, logger: mockLogger });
     const result = await orchestrator.fetch('prova-100');
 
     expect(executedSteps).toEqual(['providerA_step1', 'providerA_step2']);

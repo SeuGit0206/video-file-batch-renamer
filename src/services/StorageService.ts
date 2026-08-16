@@ -1,4 +1,5 @@
 import type { AppSettingsExport, HistoryData, AppBackup, VideoFile } from '../types';
+import { APP_VERSION } from '../constants';
 
 const HISTORY_KEY = 'vrt_app_history';
 const BACKUPS_KEY = 'vrt_app_backups';
@@ -12,7 +13,7 @@ export class StorageService {
    */
   public static exportSettings(settings: Omit<AppSettingsExport, 'version' | 'exportedAt'>): string {
     const fullData: AppSettingsExport = {
-      version: '1.4.0',
+      version: APP_VERSION,
       exportedAt: new Date().toISOString(),
       ...settings,
     };
@@ -152,7 +153,7 @@ export class StorageService {
   ): AppBackup {
     const backups = this.getBackups();
     const exportedSettings: AppSettingsExport = {
-      version: '1.4.0',
+      version: APP_VERSION,
       exportedAt: new Date().toISOString(),
       ...settings,
     };
