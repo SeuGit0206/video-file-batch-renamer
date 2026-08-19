@@ -73,6 +73,33 @@ describe('PlaywrightBrowserService', () => {
       expect(browser2).toBe(mockBrowser);
     });
 
+    it('initialize() が並行して複数回呼ばれた場合でも重複起動せず単一の Browser インスタンスを返す', async () => {
+      const service = new PlaywrightBrowserService();
+      const [b1, b2, b3] = await Promise.all([
+        service.initialize(),
+        service.initialize(),
+        service.initialize(),
+      ]);
+
+      expect(chromium.launch).toHaveBeenCalledTimes(1);
+      expect(b1).toBe(mockBrowser);
+      expect(b2).toBe(mockBrowser);
+      expect(b3).toBe(mockBrowser);
+    });
+
+    it('initialize() が失敗した場合、再試行時に再実行される', async () => {
+      vi.mocked(chromium.launch)
+        .mockRejectedValueOnce(new Error('Temporary launch failure'))
+        .mockResolvedValueOnce(mockBrowser as unknown as Browser);
+
+      const service = new PlaywrightBrowserService();
+      await expect(service.initialize()).rejects.toThrow();
+
+      const browser = await service.initialize();
+      expect(browser).toBe(mockBrowser);
+      expect(chromium.launch).toHaveBeenCalledTimes(2);
+    });
+
     it('Chromium 未インストール時に適切な例外となる (Executable doesn\'t exist)', async () => {
       vi.mocked(chromium.launch).mockRejectedValueOnce(
         new Error("Executable doesn't exist at /path/to/chromium")

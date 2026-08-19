@@ -37,6 +37,7 @@ import type { RulePreset } from './types/rule';
 import { useAppSettings } from './hooks/useAppSettings';
 import { useMetadataSync } from './hooks/useMetadataSync';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+import { useVideoFileList } from './hooks/useVideoFileList';
 
 export default function App() {
   // Rule Engine Services (Container経由)
@@ -133,11 +134,32 @@ export default function App() {
 
   const [_activePreset, _setActivePreset] = useState<RulePreset | null>(null);
 
-  // WPF Simulator State
-  const [files, setFiles] = useState<VideoFile[]>(initialFiles);
-  const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
-  const [dragActive, setDragActive] = useState<boolean>(false);
-  const [newFileNameInput, setNewFileNameInput] = useState<string>('');
+  // Video Files Collection Management (Hook)
+  const {
+    files,
+    setFiles,
+    selectedFileId,
+    setSelectedFileId,
+    selectedFile,
+    newFileNameInput,
+    setNewFileNameInput,
+    dragActive,
+    fileSearchQuery,
+    setFileSearchQuery,
+    fileStatusFilter,
+    setFileStatusFilter,
+    fileSortBy,
+    setFileSortBy,
+    fileSortOrder,
+    setFileSortOrder,
+    handleSelectAll,
+    handleSelectFile,
+    handleAddNewFile: addNewFileFromHook,
+    handleDragOver,
+    handleDragLeave,
+    handleDrop: handleDropFromHook,
+    handleResetFiles,
+  } = useVideoFileList({ initialFiles });
 
   // Execution states
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
@@ -165,12 +187,6 @@ export default function App() {
 
   // Rollback / Undo State History
   const [renameHistory, setRenameHistory] = useState<{ filesState: VideoFile[] }[]>([]);
-
-  // File search, filter, and sort states
-  const [fileSearchQuery, setFileSearchQuery] = useState<string>('');
-  const [fileStatusFilter, setFileStatusFilter] = useState<string>('All');
-  const [fileSortBy, setFileSortBy] = useState<string>('originalName');
-  const [fileSortOrder, setFileSortOrder] = useState<'asc' | 'desc'>('asc');
 
   // Gemini & Troubleshooting states
   const [geminiApiKeyInput, setGeminiApiKeyInput] = useState<string>('');
@@ -887,14 +903,6 @@ export default function App() {
     addLog('Info', 'BatchRenameService', `個別リネーム成功: ${file.originalName} -> ${newName}`);
   }, [getFormattedPreviewName, addLog]);
 
-  const handleSelectAll = useCallback((checked: boolean) => {
-    setFiles(prev => prev.map(f => ({ ...f, isSelected: checked })));
-  }, []);
-
-  const handleSelectFile = useCallback((id: string, checked: boolean) => {
-    setFiles(prev => prev.map(f => f.id === id ? { ...f, isSelected: checked } : f));
-  }, []);
-
   const handleExportCsv = useCallback((mode: 'preview' | 'result') => {
     const headers = ['FileID', 'OriginalName', 'ExtractedID', 'Status', 'RenamedPreview', 'Title', 'Actress', 'ReleaseDate'];
     const rows = files.map(f => [
@@ -956,63 +964,21 @@ EndGlobal`);
   }, []);
 
   const handleAddNewFile = useCallback(() => {
-    if (!newFileNameInput.trim()) return;
-    const ext = newFileNameInput.includes('.') ? '' : '.mp4';
-    const fullName = newFileNameInput.trim() + ext;
-    const extracted = extractIdFromFilename(fullName, regexPattern);
-
-    const newFile: VideoFile = {
-      id: `f_${Date.now()}`,
-      originalName: fullName,
-      extractedId: extracted || undefined,
-      status: extracted ? 'pending' : 'NotFound',
-      isSelected: true
-    };
-
-    setFiles(prev => [newFile, ...prev]);
-    setNewFileNameInput('');
-    addLog('Info', 'MainViewModel', `新しいファイルを追加しました: ${fullName}`);
-  }, [newFileNameInput, regexPattern, extractIdFromFilename, addLog]);
-
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(true);
-  }, []);
-
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-  }, []);
+    const added = addNewFileFromHook((name) => extractIdFromFilename(name, regexPattern));
+    if (added) {
+      addLog('Info', 'MainViewModel', `新しいファイルを追加しました: ${added.originalName}`);
+    }
+  }, [addNewFileFromHook, extractIdFromFilename, regexPattern, addLog]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const droppedFiles = Array.from(e.dataTransfer.files);
-      const newVideoFiles: VideoFile[] = droppedFiles.map((f: File, i: number) => {
-        const extracted = extractIdFromFilename(f.name, regexPattern);
-        return {
-          id: `drop_${Date.now()}_${i}`,
-          originalName: f.name,
-          extractedId: extracted || undefined,
-          status: extracted ? 'pending' : 'NotFound',
-          sizeBytes: f.size,
-          isSelected: true
-        };
-      });
-
-      setFiles(prev => [...newVideoFiles, ...prev]);
-      addLog('Info', 'MainViewModel', `${droppedFiles.length} 個のファイルをドラッグ＆ドロップで追加しました。`);
-    }
-  }, [regexPattern, extractIdFromFilename, addLog]);
-
-  const selectedFile = useMemo(() => {
-    return files.find(f => f.id === selectedFileId) || null;
-  }, [files, selectedFileId]);
+    handleDropFromHook(
+      e,
+      (name) => extractIdFromFilename(name, regexPattern),
+      (count) => {
+        addLog('Info', 'MainViewModel', `${count} 個のファイルをドラッグ＆ドロップで追加しました。`);
+      }
+    );
+  }, [handleDropFromHook, extractIdFromFilename, regexPattern, addLog]);
 
   return (
     <div className="min-h-screen bg-[#E4E3E0] text-[#141414] flex flex-col font-sans selection:bg-[#141414] selection:text-[#E4E3E0]">
@@ -1156,7 +1122,7 @@ EndGlobal`);
                   <button 
                     type="button"
                     onClick={() => {
-                      setFiles(initialFiles);
+                      handleResetFiles();
                       addLog('Info', 'MainViewModel', 'ファイルリストを初期化しました。');
                       setStatusMessage('ファイルを初期リストにリセットしました。');
                     }}

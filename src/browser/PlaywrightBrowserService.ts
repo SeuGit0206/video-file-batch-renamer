@@ -27,6 +27,7 @@ export class PlaywrightBrowserService {
   private logger: ILogger;
   private browser: Browser | null = null;
   private activeContexts: Set<BrowserContext> = new Set();
+  private initializingPromise: Promise<Browser> | null = null;
 
   constructor(
     settingsProvider?: BrowserSettingsProvider,
@@ -79,8 +80,23 @@ export class PlaywrightBrowserService {
     if (this.browser && this.browser.isConnected()) {
       return this.browser;
     }
-    this.browser = await this.launcher.launch(launchOverrides);
-    return this.browser;
+    if (this.initializingPromise) {
+      return this.initializingPromise;
+    }
+
+    this.initializingPromise = (async () => {
+      try {
+        if (this.browser && !this.browser.isConnected()) {
+          this.browser = null;
+        }
+        this.browser = await this.launcher.launch(launchOverrides);
+        return this.browser;
+      } finally {
+        this.initializingPromise = null;
+      }
+    })();
+
+    return this.initializingPromise;
   }
 
   /**
@@ -155,22 +171,36 @@ export class PlaywrightBrowserService {
    * 起動中の Service 所有 Context および Browser をすべて破棄します
    */
   public async dispose(): Promise<void> {
-    for (const context of Array.from(this.activeContexts)) {
-      try {
-        await context.close();
-      } catch {
-        // 解放時の例外は無視
-      }
-    }
+    const contextsToClose = Array.from(this.activeContexts);
     this.activeContexts.clear();
 
+    if (contextsToClose.length > 0) {
+      await Promise.allSettled(
+        contextsToClose.map(async (context) => {
+          try {
+            await context.close();
+          } catch {
+            // 解放時の例外は無視
+          }
+        })
+      );
+    }
+
     if (this.browser) {
+      const browserToClose = this.browser;
+      this.browser = null;
+
       try {
-        await this.browser.close();
+        if (browserToClose.isConnected()) {
+          // Playwright の browser.close() がハング・遅延した場合の安全タイムアウト保護 (4000ms)
+          await Promise.race([
+            browserToClose.close(),
+            new Promise<void>((resolve) => setTimeout(resolve, 4000))
+          ]);
+        }
       } catch {
         // 解放時の例外は無視
       }
-      this.browser = null;
     }
   }
 }

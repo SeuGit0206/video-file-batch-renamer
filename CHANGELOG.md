@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.0] - 2026-08-17
+
+### Added
+- Added concurrency protection for Playwright browser initialization using `initializingPromise` to prevent multiple simultaneous browser launches.
+- Added exported `UseVideoFileListReturn` and `UseVideoFileListOptions` types.
+- Added memoized `filteredAndSortedFiles` derived state for search, filter, and sort operations.
+- Added additional unit tests for browser initialization recovery, concurrent initialization, and combined file list filtering and sorting behavior.
+
+### Improved
+- Improved `PlaywrightBrowserService` disposal with safe parallel Context cleanup using `Promise.allSettled`.
+- Added a 4,000ms safety timeout for `browser.close()`.
+- Improved recovery after Playwright browser initialization failures.
+- Improved internal organization and type safety of `useVideoFileList`.
+- Re-exported public Hook-related types from `src/hooks/index.ts`.
+
 ## [1.12.0] - 2026-08-14
 
 ### Phase 73: Backend Architecture & Routing Layer Modularization & Quality Hardening
