@@ -99,7 +99,8 @@ export function useVideoFileList(options?: UseVideoFileListOptions): UseVideoFil
           f.extractedId?.toLowerCase().includes(fileSearchQuery.toLowerCase()) ||
           (f.metadata?.title as string)?.toLowerCase().includes(fileSearchQuery.toLowerCase());
 
-        const matchesStatus = fileStatusFilter === 'All' || f.status === fileStatusFilter;
+        const matchesStatus = fileStatusFilter === 'All' ||
+          (fileStatusFilter === 'incomplete' ? f.status !== 'completed' : f.status === fileStatusFilter);
         return matchesQuery && matchesStatus;
       })
       .sort((a, b) => {

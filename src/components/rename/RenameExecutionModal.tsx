@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Play, CheckCircle2, AlertTriangle, RefreshCw, X, RotateCcw, RotateCw, FileText } from 'lucide-react';
+import { Play, CheckCircle2, AlertTriangle, RefreshCw, X, RotateCcw, RotateCw, FileText, Download, Terminal, Info, Copy, Check } from 'lucide-react';
 import type { VideoFile } from '../../types';
 import type { RenameItem, RenameExecutionResult, UndoRedoStackState, RenameResultItem } from '../../types/rename';
 import type { RenameTransaction } from '../../services/rename/RenameTransaction';
 import type { IRenameUndoRedoManager } from '../../services/rename/IRenameUndoRedoManager';
+import { generatePowerShellRenameScript, generateBatchRenameScript, downloadScriptFile } from '../../utils/scriptExporter';
 
 interface RenameExecutionModalProps {
   isOpen: boolean;
@@ -28,6 +29,7 @@ export const RenameExecutionModal: React.FC<RenameExecutionModalProps> = ({
   const [executionResult, setExecutionResult] = useState<RenameExecutionResult | null>(null);
   const [undoRedoState, setUndoRedoState] = useState<UndoRedoStackState>(undoRedoManager.getState());
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [copiedType, setCopiedType] = useState<'ps1' | 'bat' | null>(null);
 
   if (!isOpen) return null;
 
@@ -44,6 +46,60 @@ export const RenameExecutionModal: React.FC<RenameExecutionModalProps> = ({
   });
 
   const activeCount = itemsToRename.filter((i) => i.status === 'pending').length;
+
+  const handleExportPowerShell = () => {
+    const script = generatePowerShellRenameScript(files, getFormattedName);
+    downloadScriptFile(script, 'rename_videos.ps1');
+    setStatusMessage('PowerShell リネームスクリプト (rename_videos.ps1) をダウンロードしました。');
+  };
+
+  const handleExportBatch = () => {
+    const script = generateBatchRenameScript(files, getFormattedName);
+    downloadScriptFile(script, 'rename_videos.bat');
+    setStatusMessage('Windows バッチファイル (rename_videos.bat) をダウンロードしました。');
+  };
+
+  const handleCopyPowerShell = async () => {
+    const script = generatePowerShellRenameScript(files, getFormattedName);
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(script);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = script;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      setCopiedType('ps1');
+      setStatusMessage('PowerShell スクリプトをクリップボードにコピーしました。PowerShell 画面に貼り付けて実行できます。');
+      setTimeout(() => setCopiedType(null), 2000);
+    } catch {
+      setStatusMessage('クリップボードへのコピーに失敗しました。ダウンロードボタンをご利用ください。');
+    }
+  };
+
+  const handleCopyBatch = async () => {
+    const script = generateBatchRenameScript(files, getFormattedName);
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(script);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = script;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      setCopiedType('bat');
+      setStatusMessage('バッチスクリプトをクリップボードにコピーしました。コマンドプロンプトに貼り付けて実行できます。');
+      setTimeout(() => setCopiedType(null), 2000);
+    } catch {
+      setStatusMessage('クリップボードへのコピーに失敗しました。ダウンロードボタンをご利用ください。');
+    }
+  };
 
   const handleExecute = () => {
     setIsExecuting(true);
@@ -156,6 +212,20 @@ export const RenameExecutionModal: React.FC<RenameExecutionModalProps> = ({
 
         {/* Modal Body */}
         <div className="p-6 overflow-y-auto space-y-5 flex-1">
+          {/* Web Environment Notice Box */}
+          <div className="bg-amber-50 border border-amber-300 p-3.5 flex items-start gap-2.5 text-xs font-mono text-amber-950">
+            <Info className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <div className="font-bold text-amber-900">
+                【Webプレビュー環境での実ファイルリネームについて】
+              </div>
+              <p className="text-[11px] leading-relaxed text-amber-900/90">
+                ブラウザのセキュリティ制約により、Webアプリからお使いのPC内の実ファイルを直接リネームすることはできません。
+                「<strong>PowerShellスクリプト出力 (.ps1)</strong>」または「<strong>バッチファイル出力 (.bat)</strong>」をダウンロードし、動画フォルダ内で実行してください。
+              </p>
+            </div>
+          </div>
+
           {/* Status Message Banner */}
           {statusMessage && (
             <div className="p-3 bg-white border border-[#141414] text-xs font-mono flex items-center justify-between">
@@ -282,7 +352,61 @@ export const RenameExecutionModal: React.FC<RenameExecutionModalProps> = ({
             </button>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleCopyPowerShell}
+              className="px-2.5 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-900 border border-sky-300 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="PowerShellスクリプトをクリップボードにコピーします"
+            >
+              {copiedType === 'ps1' ? (
+                <>
+                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                  <span className="text-emerald-700 font-bold">コピー完了</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="w-3.5 h-3.5 text-sky-700" />
+                  <span>PS コピー</span>
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={handleExportPowerShell}
+              className="px-3 py-1.5 bg-sky-700 hover:bg-sky-800 text-white border border-sky-900 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Windows PowerShell で実行可能なリネームスクリプトを出力します"
+            >
+              <Terminal className="w-3.5 h-3.5" />
+              PowerShell (.ps1) 出力
+            </button>
+            <button
+              type="button"
+              onClick={handleCopyBatch}
+              className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-300 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="バッチスクリプトをクリップボードにコピーします"
+            >
+              {copiedType === 'bat' ? (
+                <>
+                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                  <span className="text-emerald-700 font-bold">コピー完了</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="w-3.5 h-3.5 text-slate-700" />
+                  <span>BAT コピー</span>
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={handleExportBatch}
+              className="px-3 py-1.5 bg-slate-700 hover:bg-slate-800 text-white border border-slate-900 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Windows コマンドプロンプトで実行可能なバッチファイルを出力します"
+            >
+              <Download className="w-3.5 h-3.5" />
+              バッチ (.bat) 出力
+            </button>
             <button
               type="button"
               onClick={onClose}

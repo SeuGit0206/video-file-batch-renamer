@@ -338,5 +338,26 @@ describe('FileNameFormatter Simulation Test Suite', () => {
       const path = formatRelativePath('{actress}/{id}. . . ', dotMeta, 'mp4');
       expect(path).toBe('女優A/ABC-123.mp4');
     });
+
+    it('超長大ファイル名安全性: 300文字以上の長大タイトルでも250文字以内の安全な長さに切り詰められること', () => {
+      const superLongTitle = 'あ'.repeat(300);
+      const longMeta = {
+        ...defaultMeta,
+        title: superLongTitle,
+      };
+      const formatted = sanitizeFileName(longMeta.title, 'mp4');
+      expect(Array.from(formatted).length).toBeLessThanOrEqual(250);
+      expect(formatted.endsWith('....mp4')).toBe(true);
+      expect(formatted.length).toBeLessThanOrEqual(250);
+    });
+
+    it('超長大タイトル + 絵文字・サロゲートペア: 切り詰め時にサロゲートペアが破壊されないこと', () => {
+      const emojiRepeated = '🌸😀𩸽'.repeat(100);
+      const formatted = sanitizeFileName(emojiRepeated, 'mkv');
+      expect(Array.from(formatted).length).toBeLessThanOrEqual(250);
+      expect(formatted.endsWith('....mkv')).toBe(true);
+      // No broken surrogate characters (e.g. \uD800-\uDFFF lone surrogates)
+      expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(formatted)).toBe(false);
+    });
   });
 });

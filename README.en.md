@@ -12,11 +12,13 @@ A high-performance web application that automatically extracts product IDs from 
 
 ## 📌 Key Features
 
-- **Automated ID Extraction**: Parses video filenames using regex patterns to extract product IDs (e.g., `ABC-123`, `FC2-PPV-102934`).
+- **Automated ID Extraction & Flexible File Addition**: Parses video filenames using regex patterns to extract product IDs (e.g., `ABC-123`, `FC2-PPV-102934`). Supports drag-and-drop, native OS file picker dialogs, and interactive manual filename addition.
+- **Safe Physical Rename Script Exporters**: Generates PowerShell (`.ps1`) and Windows Batch (`.bat`) scripts with one-click clipboard copying or direct file download for safely performing actual file renames on Windows.
+- **Safety Safeguards & Product ID Fallback**: Escapes special characters (such as `[1080p]` brackets and single quotes), prevents Japanese text mojibake with UTF-8 BOM, avoids overwrite collisions, and automatically falls back to sanitized product code filenames if metadata scraping is unavailable.
 - **Playwright Scraping**: High-precision automated metadata scraping using headless Chromium.
 - **Gemini AI Fallback**: Resilient metadata completion using Google Gemini API when scraping is restricted or site structures change.
 - **Parallel Processing & Caching**: Fast and efficient renaming workflows supported by in-memory caching and optimized asynchronous queues.
-- **Dry-Run Simulation**: Compare original vs. new filenames in real time with conflict detection before making any actual filesystem changes.
+- **Dry-Run Simulation & Undo/Redo**: Compare original vs. new filenames in real time with conflict detection and multi-level transaction undo/redo before making any filesystem changes.
 - **Resilience Architecture**: Built-in retries, circuit breakers, rate limiting, and fault tolerance verification.
 
 ---

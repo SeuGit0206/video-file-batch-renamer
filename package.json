@@ -1,6 +1,6 @@
 {
   "name": "video-renamer-tool",
-  "version": "1.13.0",
+  "version": "1.14.1",
   "description": "動画ファイルの作品ID自動抽出・メタデータ同期・一括リネームを行う設計・シミュレーション支援ツール",
   "license": "MIT",
   "repository": {

@@ -6,6 +6,7 @@ The table below details which versions of this project currently receive securit
 
 | Version | Supported          |
 | ------- | ------------------ |
+| 1.14.x  | :white_check_mark: |
 | 1.13.x  | :white_check_mark: |
 | 1.12.x  | :white_check_mark: |
 | 1.11.x  | :white_check_mark: |

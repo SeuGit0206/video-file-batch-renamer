@@ -64,13 +64,20 @@ test.describe('Phase 66 Complete E2E Release Verification Suite', () => {
     await expect(page.getByText('データエクスポート')).not.toBeVisible();
   });
 
-  test('Step 5: Physical Rename Execution, Undo and Redo Flow', async ({ page }) => {
+  test('Step 5: Physical Rename Execution, Undo and Redo Flow, and Script Export', async ({ page }) => {
     // Open Physical Rename Execution Modal via Command Ribbon button
     const renamePhysicalBtn = page.getByRole('button', { name: 'リネーム物理実行' });
     await expect(renamePhysicalBtn).toBeVisible();
     await renamePhysicalBtn.click();
 
     await expect(page.getByText('実ファイルリネーム実行エンジン')).toBeVisible();
+
+    // Check script export buttons
+    const psBtn = page.getByRole('button', { name: /PowerShell/i });
+    await expect(psBtn).toBeVisible();
+
+    const batBtn = page.getByRole('button', { name: /バッチ/i });
+    await expect(batBtn).toBeVisible();
 
     // Check batch rename execution button inside modal
     const batchExecuteBtn = page.getByRole('button', { name: /実ファイルリネーム一括実行/i });
@@ -79,6 +86,26 @@ test.describe('Phase 66 Complete E2E Release Verification Suite', () => {
     // Close Modal
     await page.getByText('閉じる').click();
     await expect(page.getByText('実ファイルリネーム実行エンジン')).not.toBeVisible();
+  });
+
+  test('Step 7: File Picker and Manual File Addition', async ({ page }) => {
+    // Check File Picker button
+    const filePickBtn = page.getByRole('button', { name: 'ファイル選択' });
+    await expect(filePickBtn).toBeVisible();
+
+    // Check Manual File Add input and button
+    const manualInput = page.getByPlaceholder('動画ファイル名を手動入力して追加 (例: SSNI-001.mp4)');
+    await expect(manualInput).toBeVisible();
+
+    const manualAddBtn = page.getByRole('button', { name: '手動追加' });
+    await expect(manualAddBtn).toBeVisible();
+
+    // Type new filename and click manual add
+    await manualInput.fill('SSNI-999_test.mp4');
+    await manualAddBtn.click();
+
+    // Verify input is cleared
+    await expect(manualInput).toHaveValue('');
   });
 
   test('Step 6: Settings Persistence and App Config Export/Import', async ({ page }) => {

@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.1] - 2026-08-24
+
+### Added
+- **Status Quick-Filter Buttons**: Added instant filter tabs (`すべて (N)`, `完了 (N)`, `未取得/品番のみ (N)`) above the file table for streamlined batch workflow on large file lists.
+- **Windows Max Filename Length Safety Constraints**: Added `WINDOWS_MAX_FILENAME_LENGTH = 250` and `WINDOWS_MAX_SEGMENT_LENGTH = 240` constants in `src/constants/file.ts` with surrogate-pair-safe truncation to prevent path length errors.
+- **Composite Special Characters & Surrogate Pair Test Suites**: Expanded test coverage in `ScriptExporterAndQualityGate.test.ts` and `FileNameFormatterSimulation.test.ts` covering complex mixed symbols (`%`, `^`, `&`, `$`, `#`, `()`, `[]`, `'`, spaces, emoji) and 300+ character titles.
+
+### Improved
+- **Windows Batch Script Special Character Escaping**: Enhanced `generateBatchRenameScript` with robust batch string escaping for complex filenames containing symbols.
+- **File List Incomplete State Filtering**: Updated `useVideoFileList` to seamlessly support `incomplete` status querying synchronized with quick-filter pills.
+
+## [1.14.0] - 2026-08-23
+
+### Added
+- **OS File Dialog & Manual File Addition**: Added native OS file selection via `<input type="file" multiple>` with the `FolderPlus` action button, plus an interactive manual filename addition field with validation feedback.
+- **Safe Rename Script Exporters (PowerShell & Batch)**: Implemented `generatePowerShellRenameScript` (`.ps1`) and `generateBatchRenameScript` (`.bat`) allowing safe physical batch renaming of actual video files on Windows systems.
+- **Clipboard Quick-Copy Integration**: Added one-click clipboard copying for both PowerShell and Batch scripts in `RenameExecutionModal` with instant visual status feedback.
+- **Product ID Fallback Renaming**: When scraping/metadata retrieval is unavailable, files with extracted product IDs automatically fall back to sanitized product-code filenames (e.g. `SSNI-001.mp4`).
+
+### Improved
+- **Script Safety & Edge Case Handling**:
+  - Encoded scripts with UTF-8 BOM (`.ps1`) and `chcp 65001` (`.bat`) to prevent Japanese and unicode mojibake.
+  - Used `Rename-Item -LiteralPath` and `Test-Path -LiteralPath` in PowerShell scripts to eliminate wildcard parsing bugs caused by brackets (`[1080p]`, `[FHD]`).
+  - Escaped single quotes and double quotes for filenames containing special characters.
+  - Added existence pre-checks to skip missing source files and prevent accidental overwrite of existing target files.
+- **Comprehensive Quality Assurance**:
+  - Added unit test suites for file selection, manual addition, clipboard actions, and script generation edge cases.
+  - Achieved 100% pass across all 80 Vitest suites (619+ tests) and 7/7 Playwright E2E suites.
+
 ## [1.13.0] - 2026-08-17
 
 ### Added

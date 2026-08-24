@@ -77,5 +77,23 @@ describe('RenameTable Component', () => {
     const searchInput = screen.getByPlaceholderText('ファイル名・作品ID・タイトルで絞り込み...') as HTMLInputElement;
     fireEvent.change(searchInput, { target: { value: 'ABC' } });
     expect(setFileSearchQuery).toHaveBeenCalledWith('ABC');
+
+    // Quick Status Filter Buttons validation
+    const allButton = screen.getByRole('button', { name: /すべて \(2\)/ });
+    const completedButton = screen.getByRole('button', { name: /完了 \(1\)/ });
+    const incompleteButton = screen.getByRole('button', { name: /未取得\/品番のみ \(1\)/ });
+
+    expect(allButton).toBeDefined();
+    expect(completedButton).toBeDefined();
+    expect(incompleteButton).toBeDefined();
+
+    fireEvent.click(completedButton);
+    expect(setFileStatusFilter).toHaveBeenCalledWith('completed');
+
+    fireEvent.click(incompleteButton);
+    expect(setFileStatusFilter).toHaveBeenCalledWith('incomplete');
+
+    fireEvent.click(allButton);
+    expect(setFileStatusFilter).toHaveBeenCalledWith('All');
   });
 });

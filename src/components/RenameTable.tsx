@@ -55,6 +55,10 @@ export const RenameTable: React.FC<RenameTableProps> = React.memo(({
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState<number>(0);
 
+  const allCount = files.length;
+  const completedCount = useMemo(() => files.filter(f => f.status === 'completed').length, [files]);
+  const incompleteCount = useMemo(() => files.filter(f => f.status !== 'completed').length, [files]);
+
   // Filter & Sort memoized for extreme performance
   const filteredFiles = useMemo(() => {
     return files
@@ -64,7 +68,8 @@ export const RenameTable: React.FC<RenameTableProps> = React.memo(({
           f.extractedId?.toLowerCase().includes(fileSearchQuery.toLowerCase()) ||
           (f.metadata?.title as string)?.toLowerCase().includes(fileSearchQuery.toLowerCase());
         
-        const matchesStatus = fileStatusFilter === 'All' || f.status === fileStatusFilter;
+        const matchesStatus = fileStatusFilter === 'All' ||
+          (fileStatusFilter === 'incomplete' ? f.status !== 'completed' : f.status === fileStatusFilter);
         return matchesQuery && matchesStatus;
       })
       .sort((a, b) => {
@@ -130,17 +135,58 @@ export const RenameTable: React.FC<RenameTableProps> = React.memo(({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
+          {/* Quick Status Filter Tabs */}
+          <div className="flex items-center gap-1" role="group" aria-label="ステータスクイックフィルター">
+            <button
+              type="button"
+              onClick={() => setFileStatusFilter('All')}
+              className={`px-2 py-1 border border-[#141414] font-bold text-xs transition-colors cursor-pointer ${
+                fileStatusFilter === 'All'
+                  ? 'bg-[#141414] text-white'
+                  : 'bg-white text-[#141414] hover:bg-[#141414]/10'
+              }`}
+              title="すべてのファイルを表示"
+            >
+              すべて ({allCount})
+            </button>
+            <button
+              type="button"
+              onClick={() => setFileStatusFilter('completed')}
+              className={`px-2 py-1 border border-[#141414] font-bold text-xs transition-colors cursor-pointer ${
+                fileStatusFilter === 'completed'
+                  ? 'bg-[#141414] text-white'
+                  : 'bg-white text-[#141414] hover:bg-[#141414]/10'
+              }`}
+              title="メタデータ取得完了のファイルのみ表示"
+            >
+              完了 ({completedCount})
+            </button>
+            <button
+              type="button"
+              onClick={() => setFileStatusFilter('incomplete')}
+              className={`px-2 py-1 border border-[#141414] font-bold text-xs transition-colors cursor-pointer ${
+                fileStatusFilter === 'incomplete'
+                  ? 'bg-[#141414] text-white'
+                  : 'bg-white text-[#141414] hover:bg-[#141414]/10'
+              }`}
+              title="未取得または品番のみのファイルを表示"
+            >
+              未取得/品番のみ ({incompleteCount})
+            </button>
+          </div>
+
           <div className="flex items-center gap-1">
-            <span className="text-[10px] uppercase opacity-60">状態:</span>
+            <span className="text-[10px] uppercase opacity-60">詳細:</span>
             <select 
               value={fileStatusFilter}
               onChange={(e) => setFileStatusFilter(e.target.value)}
               className="bg-white border border-[#141414] px-1.5 py-1 text-xs font-mono text-[#141414] focus:outline-none cursor-pointer"
             >
-              <option value="All">すべて ({files.length})</option>
+              <option value="All">すべて ({allCount})</option>
+              <option value="completed">完了 ({completedCount})</option>
+              <option value="incomplete">未取得/品番のみ ({incompleteCount})</option>
               <option value="pending">保留 (pending)</option>
               <option value="searching">取得中 (searching)</option>
-              <option value="completed">完了 (completed)</option>
               <option value="NotFound">未検出 (NotFound)</option>
               <option value="error">衝突/エラー (error)</option>
             </select>

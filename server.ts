@@ -102,9 +102,6 @@ async function setupServer() {
     }
   }
 
-  // Test if Playwright browser is properly installed and available
-  await checkPlaywrightBrowser();
-
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -121,6 +118,10 @@ async function setupServer() {
 
   app.listen(PORT, '0.0.0.0', () => {
     logger.info(`Server is running at http://0.0.0.0:${PORT}`);
+    // Non-blocking browser availability check in background
+    checkPlaywrightBrowser().catch((err) => {
+      logger.warn(`Browser availability check warning: ${err instanceof Error ? err.message : String(err)}`);
+    });
   });
 }
 

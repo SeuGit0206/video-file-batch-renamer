@@ -1,9 +1,9 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
 import { 
   Search, FileSpreadsheet, Cpu, Play, Download, Trash2, 
   CheckCircle2, RefreshCw, 
   FileCode, Layers, Plus,
-  Check, Sliders
+  Check, Sliders, FolderPlus
 } from 'lucide-react';
 import JSZip from 'jszip';
 import type { VideoFile, LogEntry } from './types';
@@ -155,11 +155,15 @@ export default function App() {
     handleSelectAll,
     handleSelectFile,
     handleAddNewFile: addNewFileFromHook,
+    addDroppedFiles,
     handleDragOver,
     handleDragLeave,
     handleDrop: handleDropFromHook,
     handleResetFiles,
   } = useVideoFileList({ initialFiles });
+
+  // File input ref for OS file picker dialog
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Execution states
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
@@ -966,9 +970,35 @@ EndGlobal`);
   const handleAddNewFile = useCallback(() => {
     const added = addNewFileFromHook((name) => extractIdFromFilename(name, regexPattern));
     if (added) {
-      addLog('Info', 'MainViewModel', `新しいファイルを追加しました: ${added.originalName}`);
+      addLog('Info', 'MainViewModel', `手動入力でファイルを追加しました: ${added.originalName}`);
+      setStatusMessage(`ファイル「${added.originalName}」を追加しました。`);
+    } else {
+      setStatusMessage('追加するファイル名を入力してください。');
     }
   }, [addNewFileFromHook, extractIdFromFilename, regexPattern, addLog]);
+
+  const handleOpenFilePicker = useCallback(() => {
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''; // Reset input to allow selecting the same file again
+      fileInputRef.current.click();
+    }
+  }, []);
+
+  const handleFileInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const filesArray = Array.from(e.target.files) as File[];
+      const selectedList = filesArray.map((f: File) => ({
+        name: f.name,
+        size: f.size,
+      }));
+      const added = addDroppedFiles(
+        selectedList,
+        (name) => extractIdFromFilename(name, regexPattern)
+      );
+      addLog('Info', 'MainViewModel', `ファイル選択ダイアログから ${added.length} 個のファイルを追加しました。`);
+      setStatusMessage(`${added.length} 個のファイルを追加しました。`);
+    }
+  }, [addDroppedFiles, extractIdFromFilename, regexPattern, addLog]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     handleDropFromHook(
@@ -1030,6 +1060,26 @@ EndGlobal`);
 
                 {/* Command Ribbon */}
                 <div className="bg-[#F0EFED] border-b border-[#141414] p-3 flex flex-wrap gap-2.5 items-center">
+                  {/* Hidden File Input for OS File Picker Dialog */}
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileInputChange}
+                    multiple
+                    accept="video/*,.mp4,.mkv,.avi,.wmv,.mov,.flv,.ts,.m4v"
+                    className="hidden"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={handleOpenFilePicker}
+                    className="bg-emerald-700 hover:bg-emerald-800 text-white px-3 py-1.5 border border-emerald-900 text-xs font-bold flex items-center gap-1.5 transition-colors rounded-none cursor-pointer"
+                    title="OSのファイル選択ダイアログを開いて動画ファイルを追加します"
+                  >
+                    <FolderPlus className="w-3.5 h-3.5" />
+                    ファイル選択
+                  </button>
+
                   <button 
                     type="button"
                     onClick={handleExtractIds}
@@ -1140,16 +1190,17 @@ EndGlobal`);
                     value={newFileNameInput}
                     onChange={(e) => setNewFileNameInput(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleAddNewFile()}
-                    placeholder="新しい動画ファイル名を入力して追加 (例: SSNI-001.mp4)"
+                    placeholder="動画ファイル名を手動入力して追加 (例: SSNI-001.mp4)"
                     className="flex-1 bg-white border border-[#141414] px-3 py-1 text-xs font-mono text-[#141414] focus:outline-none"
                   />
                   <button 
                     type="button"
                     onClick={handleAddNewFile}
-                    className="bg-[#141414] text-white hover:bg-white hover:text-[#141414] border border-[#141414] px-3 py-1 text-xs font-bold uppercase transition-colors flex items-center gap-1 cursor-pointer shrink-0"
+                    className="bg-[#141414] text-white hover:bg-white hover:text-[#141414] border border-[#141414] px-3 py-1 text-xs font-bold transition-colors flex items-center gap-1 cursor-pointer shrink-0"
+                    title="入力したファイル名を手動でリストに追加します"
                   >
                     <Plus className="w-3.5 h-3.5" />
-                    追加
+                    手動追加
                   </button>
                 </div>
 

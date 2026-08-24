@@ -17,3 +17,9 @@ export const ERROR_LOG_FILE_PATH = 'logs/error.log';
 export const WINDOWS_INVALID_CHARS_REGEX = /[\\/:*?"<>|]/;
 export const WINDOWS_RESERVED_NAMES_REGEX = /^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?$/i;
 export const WINDOWS_INVALID_END_CHARS_REGEX = /[. ]$/;
+
+/**
+ * ファイル名・ディレクトリ名の最大長制約 (Windows MAX_PATH / NTFS 単体ファイル長 255 安全マージン)
+ */
+export const WINDOWS_MAX_FILENAME_LENGTH = 250;
+export const WINDOWS_MAX_SEGMENT_LENGTH = 240;
