@@ -5,7 +5,9 @@ import {
   CdpDiagnosticsService,
   DiagnosticsStorageService
 } from '../services';
-import { LOG_TAGS } from '../constants';
+import { LOG_TAGS, HTTP_STATUS } from '../constants';
+import { ScraperError } from '../errors/ScraperError';
+import { AppErrorCode } from '../errors/AppErrorCodes';
 import {
   ScrapingContext,
   GeminiFallbackStep,
@@ -253,7 +255,10 @@ export class ScrapingOrchestrator {
       }
 
       if (!ctx.metadata) {
-        throw new Error("Metadata extraction failed. No metadata generated.");
+        throw new ScraperError("作品情報が見つかりませんでした。", {
+          status: HTTP_STATUS.NOT_FOUND,
+          code: AppErrorCode.METADATA_NOT_FOUND,
+        });
       }
 
       this.metricsCollector.recordScraping(providerName, Date.now() - startTime);

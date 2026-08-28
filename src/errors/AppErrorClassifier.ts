@@ -24,6 +24,17 @@ export class AppErrorClassifier {
     }
 
     if (error instanceof ScraperError) {
+      if (error.code === AppErrorCode.METADATA_NOT_FOUND || error.status === 404) {
+        return {
+          code: AppErrorCode.METADATA_NOT_FOUND,
+          category: 'recoverable',
+          userMessage: '作品情報が見つかりませんでした。',
+          suggestion: '作品IDが正しいか確認するか、手動でタイトルを入力してください。',
+          retryable: true,
+          technicalDetails: error.message,
+        };
+      }
+
       const isCf = error.message.includes('Cloudflare') || error.status === 403;
       if (isCf) {
         return {

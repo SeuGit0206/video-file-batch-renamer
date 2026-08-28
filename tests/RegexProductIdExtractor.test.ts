@@ -26,7 +26,7 @@ function extractIdFromFilename(name: string, customPat?: string): string {
     return `FC2-PPV-${fc2Match[2]}`;
   }
 
-  const hyphenMatch = base.match(/([a-zA-Z]{2,6})-([0-9]{3,5})/);
+  const hyphenMatch = base.match(/(?:^|[^a-zA-Z0-9])([a-zA-Z]{2,10})-([0-9]{2,5})(?:[^0-9]|$)/i);
   if (hyphenMatch) {
     return `${hyphenMatch[1].toUpperCase()}-${hyphenMatch[2]}`;
   }
@@ -47,7 +47,23 @@ function extractIdFromFilename(name: string, customPat?: string): string {
 describe('RegexProductIdExtractor Unit Tests', () => {
   it('標準形式 (ABC-123) を正常に抽出できること', () => {
     expect(extractIdFromFilename('ssni-001.mp4')).toBe('SSNI-001');
+    expect(extractIdFromFilename('abc-123.mp4')).toBe('ABC-123');
+    expect(extractIdFromFilename('abp-001.mp4')).toBe('ABP-001');
     expect(extractIdFromFilename('[1080p] ipx-420_sub.mkv')).toBe('IPX-420');
+  });
+
+  it('長い英字プレフィックスおよびINVALID-9999を正常に抽出できること (Phase 91)', () => {
+    expect(extractIdFromFilename('INVALID-9999_error.mp4')).toBe('INVALID-9999');
+    expect(extractIdFromFilename('caribbean-123.mp4')).toBe('CARIBBEAN-123');
+    expect(extractIdFromFilename('prestige-01.mp4')).toBe('PRESTIGE-01');
+    expect(extractIdFromFilename('[HD] PRESTIGE-01_uncensored.mp4')).toBe('PRESTIGE-01');
+    expect(extractIdFromFilename('1080p_INVALID-9999_sample.mp4')).toBe('INVALID-9999');
+  });
+
+  it('一般的なファイル名での誤検出を防止できること', () => {
+    expect(extractIdFromFilename('video-123456.mp4')).toBe('');
+    expect(extractIdFromFilename('sample-1.mp4')).toBe('');
+    expect(extractIdFromFilename('my-video-clip.mp4')).toBe('');
   });
 
   it('ハイフン無しの形式 (ABC12345) を正常に抽出できること', () => {
@@ -58,6 +74,7 @@ describe('RegexProductIdExtractor Unit Tests', () => {
   it('FC2-PPV 形式を正常に抽出できること', () => {
     expect(extractIdFromFilename('fc2-ppv-1234567.mp4')).toBe('FC2-PPV-1234567');
     expect(extractIdFromFilename('fc2ppv1234567.mp4')).toBe('FC2-PPV-1234567');
+    expect(extractIdFromFilename('FC2-PPV-102934.mp4')).toBe('FC2-PPV-102934');
   });
 
   it('カリビアンコム形式 (010123_001) を正常に抽出できること', () => {

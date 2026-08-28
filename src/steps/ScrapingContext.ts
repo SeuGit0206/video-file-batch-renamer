@@ -9,7 +9,7 @@ import { HTTP_STATUS } from '../constants';
 export class ScrapingContext {
   public readonly productId: string;
   public readonly cleanId: string;
-  public readonly url: string;
+  public url: string;
 
   public browser: Browser | null = null;
   public context: BrowserContext | null = null;

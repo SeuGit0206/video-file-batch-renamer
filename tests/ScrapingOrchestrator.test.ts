@@ -6,6 +6,8 @@ import { PlaywrightBrowserService } from '../src/browser/PlaywrightBrowserServic
 import { CloudflareService, CookieService, GeminiSearchService } from '../src/services';
 import { HtmlParserService } from '../src/parsers';
 import { ScraperError } from '../src/errors';
+import { AppErrorCode } from '../src/errors/AppErrorCodes';
+import { HTTP_STATUS } from '../src/constants';
 import { mockDocInfo, mockScrapedMetadata } from './fixtures';
 import { createMockPlaywrightObjects } from './mocks';
 
@@ -229,16 +231,30 @@ describe('ScrapingOrchestrator', () => {
       expect(PlaywrightBrowserService.prototype.dispose).toHaveBeenCalled();
     });
 
-    it('抽出タイトルが空で Metadata エラーが発生する場合でも、cleanup が確実に実行される', async () => {
+    it('抽出タイトルが空で Metadata エラーが発生する場合でも、404/METADATA_NOT_FOUND をスローし cleanup が確実に実行される', async () => {
       vi.spyOn(HtmlParserService, 'cleanTitle').mockReturnValue('');
 
       const orchestrator = new ScrapingOrchestrator();
 
-      await expect(orchestrator.fetch('ABC-123')).rejects.toThrow(
-        'Metadata extraction failed. Missing title from page.'
-      );
+      await expect(orchestrator.fetch('ABC-123')).rejects.toMatchObject({
+        status: HTTP_STATUS.NOT_FOUND,
+        code: AppErrorCode.METADATA_NOT_FOUND
+      });
 
       // 失敗時でも cleanup() が確実に呼ばれたことを検証
+      expect(PlaywrightBrowserService.prototype.dispose).toHaveBeenCalled();
+    });
+
+    it('メタデータが取得できない場合に ScraperError (404, METADATA_NOT_FOUND) をスローすること (Phase 91)', async () => {
+      vi.spyOn(HtmlParserService, 'cleanTitle').mockReturnValue('');
+
+      const orchestrator = new ScrapingOrchestrator();
+
+      await expect(orchestrator.fetch('NONEXISTENT-999')).rejects.toMatchObject({
+        status: HTTP_STATUS.NOT_FOUND,
+        code: AppErrorCode.METADATA_NOT_FOUND
+      });
+
       expect(PlaywrightBrowserService.prototype.dispose).toHaveBeenCalled();
     });
   });

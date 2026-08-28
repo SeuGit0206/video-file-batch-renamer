@@ -123,6 +123,75 @@ export class OpenProductPageStep implements IScrapingStep {
       }
       ctx.status = ctx.response ? ctx.response.status() : HTTP_STATUS.OK;
       ctx.addTimelineLog("Navigation Completed", { status: ctx.status });
+
+      // 直接アクセス後の 404 / 未検出判定と検索フォールバック
+      const initialTitle = await ctx.page.title().catch(() => '');
+      const isDirect404 = ctx.status === HTTP_STATUS.NOT_FOUND ||
+        initialTitle.includes('404') ||
+        initialTitle.toLowerCase().includes('page not found') ||
+        initialTitle.toLowerCase().includes('not found');
+
+      if (isDirect404) {
+        this.logger.info(`${LOG_TAGS.SCRAPING} 直接URLが404/未検出のため、検索フォールバックを実行します: ${ctx.cleanId}`);
+        const searchUrl = `https://missav.ai/ja/search/${encodeURIComponent(ctx.cleanId)}`;
+        try {
+          await ctx.page.goto(searchUrl, {
+            waitUntil: 'domcontentloaded',
+            timeout: 20000
+          });
+          try {
+            await ctx.page.waitForLoadState('networkidle', { timeout: 10000 });
+          } catch {
+            // ignore
+          }
+          try {
+            await ctx.page.waitForSelector('a[href]', { timeout: 10000 });
+          } catch {
+            // ignore
+          }
+
+          const targetIdLower = ctx.cleanId.toLowerCase();
+          const matchedUrl = await ctx.page.evaluate((idLower) => {
+            const anchors = Array.from(document.querySelectorAll('a[href]'));
+            for (const a of anchors) {
+              const href = a.getAttribute('href') || '';
+              const cleanHref = href.split('?')[0].replace(/\/+$/, '');
+              const segments = cleanHref.split('/');
+              const lastSegment = segments[segments.length - 1]?.toLowerCase();
+              if (lastSegment === idLower) {
+                return (a as HTMLAnchorElement).href || href;
+              }
+            }
+            return null;
+          }, targetIdLower);
+
+          if (matchedUrl) {
+            this.logger.info(`${LOG_TAGS.SCRAPING} 検索結果から完全一致URLを検出: ${matchedUrl}`);
+            ctx.url = matchedUrl;
+            ctx.response = await ctx.page.goto(matchedUrl, {
+              waitUntil: 'domcontentloaded',
+              timeout: 30000
+            });
+            try {
+              await ctx.page.waitForLoadState('networkidle', { timeout: 10000 });
+            } catch {
+              // ignore
+            }
+            try {
+              await ctx.page.waitForSelector('body', { timeout: 15000 });
+            } catch {
+              // ignore
+            }
+            ctx.status = ctx.response ? ctx.response.status() : HTTP_STATUS.OK;
+            ctx.addTimelineLog("Search Fallback Navigation Completed", { status: ctx.status, url: matchedUrl });
+          } else {
+            this.logger.info(`${LOG_TAGS.SCRAPING} 検索結果に作品ID [${ctx.cleanId}] と完全一致するリンクは見つかりませんでした。`);
+            ctx.status = HTTP_STATUS.NOT_FOUND;
+          }
+        } catch (searchErr: unknown) {
+          this.logger.warn(`${LOG_TAGS.SCRAPING} 検索フォールバック実行中にエラーが発生しました: ${getErrorMessage(searchErr)}`);
+        }
+      }
     } catch (gotoErr: unknown) {
       ctx.status = HTTP_STATUS.INTERNAL_SERVER_ERROR;
       const errMsg = getErrorMessage(gotoErr);

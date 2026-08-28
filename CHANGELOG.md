@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.2] - 2026-08-25
+
+### Improved
+- **長名作品ID抽出の改善**: 英字プレフィックスを2〜10文字、数字サフィックスを2〜5桁に拡張し、`INVALID-9999`, `CARIBBEAN-123`, `PRESTIGE-01` などの長名品番および2桁品番の自動抽出に対応。
+- **MissAV 動的URL検索フォールバック対応**: 直接アクセス (`/ja/{id}`) が404またはNot Foundとなった場合、自動的に `/ja/search/{id}` を検索し、`/dm64/ja/{id}` 等の動的プレフィックスを持つ作品詳細URLを完全一致判定で解決・遷移する2段階アクセスを実装。
+- **メタデータ未検出時のエラー分類改善 (E2004)**: メタデータ未検出時に構造化された `404` / `METADATA_NOT_FOUND` エラーを返却し、フロントエンド側で `E2004` (品番メタデータ未検出) として正確に分類・通知するように改善。
+
+### Verified
+- **全品質ゲート通過**: TypeScript型チェック、ESLint静的解析、プロダクションビルド、Vitest単体・結合テスト (83 Files / 639 Tests)、Playwright E2Eテスト (7/7 シナリオ) をすべて100%パス。
+
 ## [1.14.1] - 2026-08-24
 
 ### Added

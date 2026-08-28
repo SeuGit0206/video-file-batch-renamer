@@ -1,11 +1,13 @@
 import type { ScraperDebugInfo } from '../types';
 import { getErrorMessage, isScraperCustomError } from '../types';
 import { HTTP_STATUS, MISSAV_JA_BASE_URL } from '../constants';
+import { AppErrorCode } from '../errors/AppErrorCodes';
 
 export interface ErrorResponseBody {
   error: string;
   details: string;
   status: number;
+  errorCode?: string;
   debug: ScraperDebugInfo;
 }
 
@@ -34,6 +36,9 @@ export class ErrorResponseFactory implements IErrorResponseFactory {
         ? error.status
         : HTTP_STATUS.INTERNAL_SERVER_ERROR;
     const customDebug = isScraperCustomError(error) ? error.debug : undefined;
+    const errorCode = (error && typeof error === 'object' && 'code' in error && typeof (error as Record<string, unknown>).code === 'string')
+      ? (error as Record<string, unknown>).code as string
+      : (statusCode === HTTP_STATUS.NOT_FOUND ? AppErrorCode.METADATA_NOT_FOUND : undefined);
 
     const debug: ScraperDebugInfo =
       (customDebug as ScraperDebugInfo) || this.createDefaultDebugInfo(productId, errMessage, statusCode);
@@ -44,6 +49,7 @@ export class ErrorResponseFactory implements IErrorResponseFactory {
         error: errMessage,
         details: errMessage,
         status: statusCode,
+        ...(errorCode ? { errorCode } : {}),
         debug,
       },
     };
@@ -61,6 +67,7 @@ export class ErrorResponseFactory implements IErrorResponseFactory {
       error: message,
       details: message,
       status: HTTP_STATUS.NOT_FOUND,
+      errorCode: AppErrorCode.METADATA_NOT_FOUND,
       debug: {
         ...this.createDefaultDebugInfo(productId, message, HTTP_STATUS.NOT_FOUND),
         ...debugInfo,

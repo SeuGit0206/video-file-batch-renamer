@@ -4,6 +4,8 @@ import type { ILogger } from '../services';
 import { HtmlParserService } from '../parsers';
 import type { IMetadataBuilder } from '../builders';
 import { ScraperError } from '../errors';
+import { AppErrorCode } from '../errors/AppErrorCodes';
+import { HTTP_STATUS } from '../constants';
 import type { IMetadataExtractor } from '../extractors/IMetadataExtractor';
 import { MissAvMetadataExtractor } from '../extractors/MissAvMetadataExtractor';
 
@@ -163,6 +165,8 @@ export class MetadataParsingStep implements IScrapingStep {
       this.logger.info(`- Body preview: ${ctx.bodyPreview}`);
 
       throw new ScraperError("Metadata extraction failed. Missing title from page.", {
+        status: HTTP_STATUS.NOT_FOUND,
+        code: AppErrorCode.METADATA_NOT_FOUND,
         debug: {
           finalUrl: ctx.finalUrl,
           pageTitle: ctx.pageTitle,

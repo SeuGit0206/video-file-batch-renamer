@@ -1,13 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { ErrorResponseFactory } from '../src/factories/ErrorResponseFactory';
 import { ScraperError } from '../src/errors';
+import { AppErrorCode } from '../src/errors/AppErrorCodes';
 import { HTTP_STATUS, MISSAV_JA_BASE_URL } from '../src/constants';
 
 describe('ErrorResponseFactory', () => {
   const factory = new ErrorResponseFactory();
 
   describe('createErrorResponse', () => {
-    it('ScraperError (例: 404) から適切な statusCode と ErrorResponseBody を生成する', () => {
+    it('ScraperError (例: 404) から適切な statusCode, errorCode と ErrorResponseBody を生成する', () => {
       const customDebug = {
         finalUrl: 'https://missav.ai/ja/abc-123',
         pageTitle: 'Not Found Page',
@@ -16,17 +17,19 @@ describe('ErrorResponseFactory', () => {
         bodyPreview: 'Not found',
         status: 404,
       };
-      const scraperError = new ScraperError('Resource not found', {
+      const scraperError = new ScraperError('作品情報が見つかりませんでした。', {
         status: HTTP_STATUS.NOT_FOUND,
+        code: AppErrorCode.METADATA_NOT_FOUND,
         debug: customDebug,
       });
 
       const result = factory.createErrorResponse(scraperError, 'ABC-123');
 
       expect(result.statusCode).toBe(HTTP_STATUS.NOT_FOUND);
-      expect(result.body.error).toBe('Resource not found');
-      expect(result.body.details).toBe('Resource not found');
+      expect(result.body.error).toBe('作品情報が見つかりませんでした。');
+      expect(result.body.details).toBe('作品情報が見つかりませんでした。');
       expect(result.body.status).toBe(HTTP_STATUS.NOT_FOUND);
+      expect(result.body.errorCode).toBe(AppErrorCode.METADATA_NOT_FOUND);
       expect(result.body.debug).toEqual(customDebug);
     });
 

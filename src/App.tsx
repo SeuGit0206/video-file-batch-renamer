@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo, useRef } from 'react';
-import { 
-  Search, FileSpreadsheet, Cpu, Play, Download, Trash2, 
-  CheckCircle2, RefreshCw, 
+import {
+  Search, FileSpreadsheet, Cpu, Play, Download, Trash2,
+  CheckCircle2, RefreshCw,
   FileCode, Layers, Plus,
   Check, Sliders, FolderPlus
 } from 'lucide-react';
@@ -25,10 +25,11 @@ import { RuleEditorModal } from './components/rule/RuleEditorModal';
 import { RenameExecutionModal } from './components/rename/RenameExecutionModal';
 import { AppInfoModal } from './components/AppInfoModal';
 import { MetadataEditModal } from './components/MetadataEditModal';
-import type { ScrapedMetadata } from './types/scraper';
+import type { ScrapedMetadata, ScraperDebugInfo } from './types/scraper';
 import { ErrorNotificationBanner } from './components/ErrorNotificationBanner';
 import { AppErrorClassifier } from './errors/AppErrorClassifier';
-import type { AppErrorDetails } from './errors/AppErrorCodes';
+import { AppErrorCode, type AppErrorDetails } from './errors/AppErrorCodes';
+import { ScraperError } from './errors/ScraperError';
 import { container } from './composition/container';
 import type { ExportData, ExportTarget } from './types/export';
 import type { ImportResult, ImportTarget } from './types/import';
@@ -355,7 +356,7 @@ export default function App() {
   // Convert Regex Pattern and Extract ID
   const extractIdFromFilename = useCallback((name: string, customPat: string): string => {
     const base = name.split('.').slice(0, -1).join('.') || name;
-    
+
     if (customPat && customPat.trim() !== '') {
       try {
         let patternStr = customPat;
@@ -374,7 +375,7 @@ export default function App() {
     const fc2Match = base.match(/(fc2-ppv|fc2ppv)-?([0-9]{5,8})/i);
     if (fc2Match) return `FC2-PPV-${fc2Match[2]}`;
 
-    const hyphenMatch = base.match(/([a-zA-Z]{2,6})-([0-9]{3,5})/);
+    const hyphenMatch = base.match(/(?:^|[^a-zA-Z0-9])([a-zA-Z]{2,10})-([0-9]{2,5})(?:[^0-9]|$)/i);
     if (hyphenMatch) return `${hyphenMatch[1].toUpperCase()}-${hyphenMatch[2]}`;
 
     const noHyphenMatch = base.match(/([a-zA-Z]{2,6})([0-9]{3,5})/);
@@ -557,7 +558,7 @@ export default function App() {
   }), [TitleCleaner, FileNameSanitizer]);
 
   const getFormattedPreviewName = useCallback((file: VideoFile): string => {
-    const ext = file.originalName.includes('.') 
+    const ext = file.originalName.includes('.')
       ? `.${file.originalName.split('.').pop()}`
       : '';
 
@@ -785,12 +786,31 @@ export default function App() {
           addLog('Info', 'PlaywrightBrowserService', `MissAV URLへ接続中: https://missav.ai/ja/${id.toLowerCase()}`);
 
           const res = await fetch(`/api/metadata?id=${encodeURIComponent(id)}`);
-          if (!res.ok) {
-            throw new Error(`HTTP ${res.status}: メタデータ取得失敗`);
+          let data: { error?: string; errorCode?: string; data?: ScrapedMetadata; debug?: ScraperDebugInfo } | null = null;
+          try {
+            data = await res.json();
+          } catch {
+            // non-json response
           }
-          const data = await res.json();
-          if (data.error || !data.data) {
-            throw new Error(data.error || 'メタデータが見つかりませんでした');
+
+          if (!res.ok) {
+            const errorMsg = data?.error || `HTTP ${res.status}: メタデータ取得失敗`;
+            const code = data?.errorCode as AppErrorCode | undefined;
+            throw new ScraperError(errorMsg, {
+              status: res.status,
+              code: code || (res.status === 404 ? AppErrorCode.METADATA_NOT_FOUND : undefined),
+              debug: data?.debug,
+            });
+          }
+
+          if (data?.error || !data?.data) {
+            const errorMsg = data?.error || 'メタデータが見つかりませんでした';
+            const code = data?.errorCode as AppErrorCode | undefined;
+            throw new ScraperError(errorMsg, {
+              status: 404,
+              code: code || AppErrorCode.METADATA_NOT_FOUND,
+              debug: data?.debug,
+            });
           }
 
           const meta = data.data;
@@ -801,7 +821,7 @@ export default function App() {
             ...f,
             status: 'completed',
             metadata: meta,
-            detailUrl: meta.url || `https://missav.ai/ja/${id.toLowerCase()}`
+            detailUrl: meta.detailUrl || `https://missav.ai/ja/${id.toLowerCase()}`
           } : f));
           addLog('Info', 'ScrapingOrchestrator', `メタデータ取得成功: [${id}] - ${meta.title}`);
         } catch (err: unknown) {
@@ -1024,7 +1044,7 @@ EndGlobal`);
 
       {/* Main Body */}
       <main className="flex-1 p-4 sm:p-6 max-w-7xl w-full mx-auto flex flex-col gap-6">
-        
+
         {/* Error Notification Banner (Step 1 Error Handling) */}
         <ErrorNotificationBanner
           errorDetails={currentErrorDetails}
@@ -1036,15 +1056,15 @@ EndGlobal`);
             }
           }}
         />
-        
+
         {/* TAB 1: WPF APP SIMULATOR */}
         {activeTab === 'simulator' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
-            
+
             {/* WPF Windows Frame Container */}
             <div className="lg:col-span-8 flex flex-col" id="wpf-window-simulator">
               <div className="bg-white border border-[#141414] overflow-hidden flex flex-col flex-1 min-h-[500px] rounded-none">
-                
+
                 {/* Windows Chrome Bar */}
                 <div className="bg-[#DCDAD7] border-b border-[#141414] px-4 py-2.5 flex items-center justify-between rounded-none">
                   <div className="flex items-center gap-2">
@@ -1080,7 +1100,7 @@ EndGlobal`);
                     ファイル選択
                   </button>
 
-                  <button 
+                  <button
                     type="button"
                     onClick={handleExtractIds}
                     className="bg-white hover:bg-[#141414] hover:text-[#E4E3E0] text-[#141414] px-3 py-1.5 border border-[#141414] text-xs font-bold flex items-center gap-1.5 transition-colors rounded-none cursor-pointer"
@@ -1090,7 +1110,7 @@ EndGlobal`);
                     作品ID抽出 (Regex)
                   </button>
 
-                  <button 
+                  <button
                     type="button"
                     onClick={() => setRuleEnabled(prev => !prev)}
                     className={`px-3 py-1.5 text-xs font-bold flex items-center gap-1.5 transition-colors border rounded-none cursor-pointer ${
@@ -1104,7 +1124,7 @@ EndGlobal`);
                     Rule: {ruleEnabled ? 'ON' : 'OFF'}
                   </button>
 
-                  <button 
+                  <button
                     type="button"
                     onClick={() => handleExportCsv('preview')}
                     className="bg-[#141414] text-white hover:bg-white hover:text-[#141414] border border-[#141414] px-3 py-1.5 border border-[#141414] text-xs font-bold flex items-center gap-1.5 transition-colors rounded-none cursor-pointer"
@@ -1116,12 +1136,12 @@ EndGlobal`);
 
                   <div className="w-px h-5 bg-[#141414]/20"></div>
 
-                  <button 
+                  <button
                     type="button"
                     onClick={handleFetchMetadata}
                     disabled={isProcessing}
                     className={`px-3 py-1.5 text-xs font-bold flex items-center gap-1.5 transition-colors border rounded-none cursor-pointer ${
-                      isProcessing 
+                      isProcessing
                         ? 'bg-[#DCDAD7] text-[#141414]/40 cursor-not-allowed border-[#141414]/20'
                         : 'bg-[#141414] hover:bg-white hover:text-[#141414] text-white border-[#141414]'
                     }`}
@@ -1131,12 +1151,12 @@ EndGlobal`);
                     メタデータ取得
                   </button>
 
-                  <button 
+                  <button
                     type="button"
                     onClick={() => setIsRenameExecutionModalOpen(true)}
                     disabled={isProcessing}
                     className={`px-3 py-1.5 text-xs font-bold flex items-center gap-1.5 transition-colors border rounded-none cursor-pointer ${
-                      isProcessing 
+                      isProcessing
                         ? 'bg-[#DCDAD7] text-[#141414]/40 cursor-not-allowed border-[#141414]/20'
                         : 'bg-red-700 hover:bg-white hover:text-red-700 text-white border-red-700'
                     }`}
@@ -1146,7 +1166,7 @@ EndGlobal`);
                     リネーム物理実行
                   </button>
 
-                  <button 
+                  <button
                     type="button"
                     onClick={() => handleExportCsv('result')}
                     className="bg-white hover:bg-[#141414] hover:text-[#E4E3E0] text-[#141414] px-3 py-1.5 border border-[#141414] text-xs font-bold flex items-center gap-1.5 transition-colors rounded-none cursor-pointer"
@@ -1159,7 +1179,7 @@ EndGlobal`);
                   <div className="w-px h-5 bg-[#141414]/20 ml-auto"></div>
 
                   {renameHistory.length > 0 && (
-                    <button 
+                    <button
                       type="button"
                       onClick={handleUndoRename}
                       className="bg-[#141414] text-white hover:bg-white hover:text-[#141414] border border-[#141414] px-2.5 py-1 text-xs font-bold transition-all rounded-none cursor-pointer"
@@ -1169,7 +1189,7 @@ EndGlobal`);
                     </button>
                   )}
 
-                  <button 
+                  <button
                     type="button"
                     onClick={() => {
                       handleResetFiles();
@@ -1185,7 +1205,7 @@ EndGlobal`);
 
                 {/* Add Custom File Bar */}
                 <div className="bg-[#E4E3E0] border-b border-[#141414] px-3 py-2 flex items-center gap-2">
-                  <input 
+                  <input
                     type="text"
                     value={newFileNameInput}
                     onChange={(e) => setNewFileNameInput(e.target.value)}
@@ -1193,7 +1213,7 @@ EndGlobal`);
                     placeholder="動画ファイル名を手動入力して追加 (例: SSNI-001.mp4)"
                     className="flex-1 bg-white border border-[#141414] px-3 py-1 text-xs font-mono text-[#141414] focus:outline-none"
                   />
-                  <button 
+                  <button
                     type="button"
                     onClick={handleAddNewFile}
                     className="bg-[#141414] text-white hover:bg-white hover:text-[#141414] border border-[#141414] px-3 py-1 text-xs font-bold transition-colors flex items-center gap-1 cursor-pointer shrink-0"
@@ -1205,7 +1225,7 @@ EndGlobal`);
                 </div>
 
                 {/* Main Table View Component (Step 1 + Virtual Scroll Step 3) */}
-                <RenameTable 
+                <RenameTable
                   files={files}
                   selectedFileId={selectedFileId}
                   setSelectedFileId={setSelectedFileId}
@@ -1230,7 +1250,7 @@ EndGlobal`);
                 />
 
                 {/* Selected File Details Preview Component (Step 1) */}
-                <RenamePreview 
+                <RenamePreview
                   selectedFile={selectedFile}
                   getFormattedPreviewName={getFormattedPreviewName}
                   onOpenEditModal={handleOpenMetadataEditModal}
@@ -1258,9 +1278,9 @@ EndGlobal`);
 
             {/* Right Settings & Logs Column */}
             <div className="lg:col-span-4 flex flex-col gap-4">
-              
+
               {/* Settings Panel Component (Step 1) */}
-              <SettingsPanel 
+              <SettingsPanel
                 renameTemplate={renameTemplate}
                 setRenameTemplate={setRenameTemplate}
                 regexPattern={regexPattern}
@@ -1285,7 +1305,7 @@ EndGlobal`);
               />
 
               {/* Gemini Settings Component (Step 1) */}
-              <GeminiSettings 
+              <GeminiSettings
                 geminiApiKeyInput={geminiApiKeyInput}
                 setGeminiApiKeyInput={setGeminiApiKeyInput}
                 handleTestGeminiApi={handleTestGeminiApi}
@@ -1294,7 +1314,7 @@ EndGlobal`);
               />
 
               {/* Backup & History Panel (Phase 60 Step 1, 2, 4) */}
-              <BackupHistoryPanel 
+              <BackupHistoryPanel
                 currentSettings={{
                   renameTemplate,
                   geminiApiKey: geminiApiKeyInput,
@@ -1325,7 +1345,7 @@ EndGlobal`);
               />
 
               {/* Log Viewer Component (Step 1) */}
-              <LogViewer 
+              <LogViewer
                 logs={logs}
                 handleCopyLogs={() => {
                   const logText = logs.map(l => `[${l.timestamp}] [${l.level}] [${l.source}] ${l.message}`).join('\n');
@@ -1381,8 +1401,8 @@ EndGlobal`);
                       }`}
                     >
                       <span className={`w-5 h-5 text-[10px] font-mono font-bold flex items-center justify-center shrink-0 border ${
-                        selectedPhaseId === phase.id 
-                          ? 'bg-white text-[#141414] border-white' 
+                        selectedPhaseId === phase.id
+                          ? 'bg-white text-[#141414] border-white'
                           : 'bg-white text-[#141414] border-[#141414]'
                       }`}>
                         {phase.id}
@@ -1403,7 +1423,7 @@ EndGlobal`);
                 <p className="text-[11px] opacity-65 mb-3.5 leading-relaxed">
                   すべてのフェーズ、DI登録、xUnitテスト、WPFビューをパッケージ化したZIPを取得できます。
                 </p>
-                <button 
+                <button
                   type="button"
                   onClick={downloadCsharpProject}
                   className="w-full bg-[#141414] hover:bg-white hover:text-[#141414] text-white px-4 py-2 border border-[#141414] text-xs font-bold uppercase flex items-center justify-center gap-2 transition-all cursor-pointer"
@@ -1545,7 +1565,7 @@ EndGlobal`);
                 </p>
               </div>
 
-              <button 
+              <button
                 type="button"
                 onClick={() => {
                   setIsTesting(true);
@@ -1604,7 +1624,7 @@ EndGlobal`);
       </main>
 
       {/* Troubleshooting Modal Component (Step 1) */}
-      <TroubleshootingModal 
+      <TroubleshootingModal
         activeTroubleshootingError={activeTroubleshootingError}
         setActiveTroubleshootingError={setActiveTroubleshootingError}
       />
