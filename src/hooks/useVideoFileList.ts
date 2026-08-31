@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo, type DragEvent, type Dispatch, type SetStateAction } from 'react';
 import type { VideoFile } from '../types';
 import { initialFiles as defaultInitialFiles } from '../data/mockData';
+import { isVideoFile, extractVideoFilesFromDataTransfer } from '../utils/fileSystemUtils';
 
 export interface UseVideoFileListOptions {
   initialFiles?: VideoFile[];
@@ -17,9 +18,7 @@ export interface UseVideoFileListReturn {
   setSelectedFileId: Dispatch<SetStateAction<string | null>>;
   selectedFile: VideoFile | null;
 
-  // --- Input & Drag State ---
-  newFileNameInput: string;
-  setNewFileNameInput: Dispatch<SetStateAction<string>>;
+  // --- Drag State ---
   dragActive: boolean;
   setDragActive: Dispatch<SetStateAction<boolean>>;
 
@@ -45,8 +44,6 @@ export interface UseVideoFileListReturn {
   handleClearFiles: () => void;
 
   // --- File Addition Operations ---
-  addCustomFile: (fileName: string, extractIdFn?: (name: string) => string) => VideoFile | null;
-  handleAddNewFile: (extractIdFn?: (name: string) => string) => VideoFile | null;
   addDroppedFiles: (
     droppedFiles: Array<{ name: string; size?: number }>,
     extractIdFn?: (name: string) => string
@@ -59,7 +56,7 @@ export interface UseVideoFileListReturn {
     e: DragEvent,
     extractIdFn?: (name: string) => string,
     onDropped?: (count: number) => void
-  ) => void;
+  ) => void | Promise<void>;
 }
 
 /**
@@ -69,13 +66,12 @@ export interface UseVideoFileListReturn {
  * 1. File CRUD & Collection State (files, handleUpdateFile, handleRemoveFile, handleResetFiles, handleClearFiles)
  * 2. Selection Management (selectedFileId, selectedFile, handleSelectAll, handleSelectFile)
  * 3. Search / Filter / Sort UI & Derived State (fileSearchQuery, fileStatusFilter, fileSortBy, fileSortOrder, filteredAndSortedFiles)
- * 4. File Addition & Drag-and-Drop (newFileNameInput, dragActive, addCustomFile, handleAddNewFile, addDroppedFiles, handleDrop)
+ * 4. File Addition & Drag-and-Drop (dragActive, addDroppedFiles, handleDrop with directory recursion)
  */
 export function useVideoFileList(options?: UseVideoFileListOptions): UseVideoFileListReturn {
   const initial = options?.initialFiles ?? defaultInitialFiles;
   const [files, setFiles] = useState<VideoFile[]>(initial);
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
-  const [newFileNameInput, setNewFileNameInput] = useState<string>('');
   const [dragActive, setDragActive] = useState<boolean>(false);
 
   // 検索・フィルタ・ソート状態
@@ -161,34 +157,6 @@ export function useVideoFileList(options?: UseVideoFileListOptions): UseVideoFil
   // ==========================================
   // 4. File Addition Operations
   // ==========================================
-  const addCustomFile = useCallback((fileName: string, extractIdFn?: (name: string) => string): VideoFile | null => {
-    const trimmed = fileName.trim();
-    if (!trimmed) return null;
-    const ext = trimmed.includes('.') ? '' : '.mp4';
-    const fullName = trimmed + ext;
-    const extracted = extractIdFn ? extractIdFn(fullName) : '';
-
-    const newFile: VideoFile = {
-      id: `f_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-      originalName: fullName,
-      extractedId: extracted || undefined,
-      status: extracted ? 'pending' : 'NotFound',
-      isSelected: true,
-    };
-
-    setFiles(prev => [newFile, ...prev]);
-    return newFile;
-  }, []);
-
-  const handleAddNewFile = useCallback((extractIdFn?: (name: string) => string): VideoFile | null => {
-    if (!newFileNameInput.trim()) return null;
-    const newFile = addCustomFile(newFileNameInput, extractIdFn);
-    if (newFile) {
-      setNewFileNameInput('');
-    }
-    return newFile;
-  }, [newFileNameInput, addCustomFile]);
-
   const addDroppedFiles = useCallback((
     droppedFiles: Array<{ name: string; size?: number }>,
     extractIdFn?: (name: string) => string
@@ -196,21 +164,37 @@ export function useVideoFileList(options?: UseVideoFileListOptions): UseVideoFil
     if (!droppedFiles || droppedFiles.length === 0) return [];
 
     const now = Date.now();
-    const newVideoFiles: VideoFile[] = droppedFiles.map((f, i) => {
+    const existingNames = new Set(files.map(f => f.originalName));
+    const addedBatch: VideoFile[] = [];
+
+    for (let i = 0; i < droppedFiles.length; i++) {
+      const f = droppedFiles[i];
+      if (!f.name || !isVideoFile(f.name) || existingNames.has(f.name)) {
+        continue; // Filter non-video and prevent duplicates
+      }
+      existingNames.add(f.name);
       const extracted = extractIdFn ? extractIdFn(f.name) : '';
-      return {
-        id: `drop_${now}_${i}`,
+      const newFile: VideoFile = {
+        id: `drop_${now}_${i}_${Math.random().toString(36).substring(2, 6)}`,
         originalName: f.name,
         extractedId: extracted || undefined,
         status: extracted ? 'pending' : 'NotFound',
         sizeBytes: f.size,
         isSelected: true,
       };
-    });
+      addedBatch.push(newFile);
+    }
 
-    setFiles(prev => [...newVideoFiles, ...prev]);
-    return newVideoFiles;
-  }, []);
+    if (addedBatch.length > 0) {
+      setFiles(prev => {
+        const prevNames = new Set(prev.map(f => f.originalName));
+        const uniqueBatch = addedBatch.filter(b => !prevNames.has(b.originalName));
+        return [...uniqueBatch, ...prev];
+      });
+    }
+
+    return addedBatch;
+  }, [files]);
 
   // ==========================================
   // 5. Drag & Drop Event Handlers
@@ -227,7 +211,7 @@ export function useVideoFileList(options?: UseVideoFileListOptions): UseVideoFil
     setDragActive(false);
   }, []);
 
-  const handleDrop = useCallback((
+  const handleDrop = useCallback(async (
     e: DragEvent,
     extractIdFn?: (name: string) => string,
     onDropped?: (count: number) => void
@@ -236,11 +220,22 @@ export function useVideoFileList(options?: UseVideoFileListOptions): UseVideoFil
     e.stopPropagation();
     setDragActive(false);
 
-    if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
-      const droppedList = Array.from(e.dataTransfer.files);
-      const added = addDroppedFiles(droppedList, extractIdFn);
-      if (onDropped) {
-        onDropped(added.length);
+    try {
+      const droppedEntries = await extractVideoFilesFromDataTransfer(e.dataTransfer);
+      if (droppedEntries.length > 0) {
+        const added = addDroppedFiles(droppedEntries, extractIdFn);
+        if (onDropped) {
+          onDropped(added.length);
+        }
+      }
+    } catch {
+      // Fallback to standard files if DataTransferItem traversal throws
+      if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+        const droppedList = (Array.from(e.dataTransfer.files) as File[]).filter(f => isVideoFile(f.name));
+        const added = addDroppedFiles(droppedList, extractIdFn);
+        if (onDropped) {
+          onDropped(added.length);
+        }
       }
     }
   }, [addDroppedFiles]);
@@ -251,8 +246,6 @@ export function useVideoFileList(options?: UseVideoFileListOptions): UseVideoFil
     selectedFileId,
     setSelectedFileId,
     selectedFile,
-    newFileNameInput,
-    setNewFileNameInput,
     dragActive,
     setDragActive,
     fileSearchQuery,
@@ -270,8 +263,6 @@ export function useVideoFileList(options?: UseVideoFileListOptions): UseVideoFil
     handleRemoveFile,
     handleResetFiles,
     handleClearFiles,
-    addCustomFile,
-    handleAddNewFile,
     addDroppedFiles,
     handleDragOver,
     handleDragLeave,

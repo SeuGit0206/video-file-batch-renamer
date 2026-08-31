@@ -1,8 +1,8 @@
 import React, { useState, useCallback, useMemo, useRef } from 'react';
-import {
-  Search, FileSpreadsheet, Cpu, Play, Download, Trash2,
-  CheckCircle2, RefreshCw,
-  FileCode, Layers, Plus,
+import { 
+  Search, FileSpreadsheet, Cpu, Play, Download,
+  CheckCircle2, RefreshCw, 
+  FileCode, Layers,
   Check, Sliders, FolderPlus
 } from 'lucide-react';
 import JSZip from 'jszip';
@@ -35,6 +35,9 @@ import type { ExportData, ExportTarget } from './types/export';
 import type { ImportResult, ImportTarget } from './types/import';
 import type { ProcessRecord } from './services/statistics/StatisticsService';
 import type { RulePreset } from './types/rule';
+import { extractIdFromFilename } from './extractors';
+import { FileNameSanitizer, FileNameFormatter } from './services/formatter';
+import { asyncPool } from './utils/asyncPool';
 import { useAppSettings } from './hooks/useAppSettings';
 import { useMetadataSync } from './hooks/useMetadataSync';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
@@ -99,8 +102,8 @@ export default function App() {
   // Persistent Metadata Cache Management (Hook)
   const {
     metadataCache,
-    setMetadataCache,
     updateMetadataCache,
+    clearClientCache,
   } = useMetadataSync();
 
   // Navigation & UI States
@@ -142,8 +145,6 @@ export default function App() {
     selectedFileId,
     setSelectedFileId,
     selectedFile,
-    newFileNameInput,
-    setNewFileNameInput,
     dragActive,
     fileSearchQuery,
     setFileSearchQuery,
@@ -155,7 +156,6 @@ export default function App() {
     setFileSortOrder,
     handleSelectAll,
     handleSelectFile,
-    handleAddNewFile: addNewFileFromHook,
     addDroppedFiles,
     handleDragOver,
     handleDragLeave,
@@ -353,212 +353,8 @@ export default function App() {
     { id: 't11', name: 'Test_FileName_MaxLength', category: '境界値', status: 'pending', message: '待機中' },
   ]);
 
-  // Convert Regex Pattern and Extract ID
-  const extractIdFromFilename = useCallback((name: string, customPat: string): string => {
-    const base = name.split('.').slice(0, -1).join('.') || name;
-
-    if (customPat && customPat.trim() !== '') {
-      try {
-        let patternStr = customPat;
-        const flags = 'i';
-        if (customPat.startsWith('(?i)')) {
-          patternStr = customPat.replace('(?i)', '');
-        }
-        const regex = new RegExp(patternStr, flags);
-        const match = base.match(regex);
-        if (match) return match[0].toUpperCase();
-      } catch {
-        // Fallback
-      }
-    }
-
-    const fc2Match = base.match(/(fc2-ppv|fc2ppv)-?([0-9]{5,8})/i);
-    if (fc2Match) return `FC2-PPV-${fc2Match[2]}`;
-
-    const hyphenMatch = base.match(/(?:^|[^a-zA-Z0-9])([a-zA-Z]{2,10})-([0-9]{2,5})(?:[^0-9]|$)/i);
-    if (hyphenMatch) return `${hyphenMatch[1].toUpperCase()}-${hyphenMatch[2]}`;
-
-    const noHyphenMatch = base.match(/([a-zA-Z]{2,6})([0-9]{3,5})/);
-    if (noHyphenMatch) return `${noHyphenMatch[1].toUpperCase()}-${noHyphenMatch[2]}`;
-
-    const caribbeanMatch = base.match(/([0-9]{6})_([0-9]{3})/);
-    if (caribbeanMatch) return caribbeanMatch[0];
-
-    return '';
-  }, []);
-
-  // Cleaners & Formatters
-  const TitleCleaner = useMemo(() => ({
-    clean: (title: string, productId?: string): string => {
-      if (!title) return '';
-      let cleaned = title;
-      cleaned = cleaned.replace(/[\r\n\t]/g, ' ').replace(/　/g, ' ');
-
-      const unwantedPatterns = [
-        /\s*[|#-]\s*(?:MissAV|オンラインで無料|無料|High Quality|Subbed|日本語字幕|AV女優一覧|AV女優|無料動画|高画質|オンライン視聴).*$/gi,
-        /- MissAV\.ai/gi,
-        /\| MissAV\.ai/gi,
-        /- MissAV/gi,
-        /\| MissAV/gi,
-        /無料動画/g,
-        /高画質/g,
-        /オンライン視聴/g,
-        /日本語字幕/g,
-        /AV女優一覧/g,
-        /無料/g,
-        /オンラインで無料/g,
-        /High Quality/gi,
-        /Subbed/gi
-      ];
-      for (const pat of unwantedPatterns) {
-        cleaned = cleaned.replace(pat, '');
-      }
-
-      if (productId && productId.trim() !== '') {
-        const id = productId.trim().replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-        const idNoHyphen = productId.trim().replace(/-/g, '').replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-        const reId = new RegExp(`(?<![A-Za-z0-9])${id}(?![A-Za-z0-9])`, 'gi');
-        const reIdNoHyphen = new RegExp(`(?<![A-Za-z0-9])${idNoHyphen}(?![A-Za-z0-9])`, 'gi');
-        cleaned = cleaned.replace(reId, '').replace(reIdNoHyphen, '');
-      }
-
-      cleaned = cleaned.replace(/(?:【|\[|\()(?:無修正|高画質|字幕|4K|フルHD|先行配信|独占|VR|ハイレゾ|無料|プレビュー|サンプル|配信|日本語字幕|画質|HD|SD|HQ|SUB)(?:】|\]|\))/gi, '');
-      cleaned = cleaned.replace(/【[^】]*】/g, '');
-      cleaned = cleaned.replace(/\[[^\]]*\]/g, '');
-      cleaned = cleaned.replace(/［[^］]*］/g, '');
-      cleaned = cleaned.replace(/\(\s*\)/g, '').replace(/（\s*）/g, '');
-      cleaned = cleaned.replace(/\s+/g, ' ').replace(/^[\s\-_|+#/\\]+|[\s\-_|+#/\\]+$/g, '');
-
-      return cleaned.trim();
-    }
-  }), []);
-
-  const WindowsPathHelper = useMemo(() => ({
-    sanitize: (segment: string): string => {
-      if (!segment) return '';
-      return segment
-        .replace(/\\/g, '＼')
-        .replace(/\//g, '／')
-        .replace(/:/g, '：')
-        .replace(/\*/g, '＊')
-        .replace(/\?/g, '？')
-        .replace(/"/g, '”')
-        .replace(/</g, '＜')
-        .replace(/>/g, '＞')
-        .replace(/\|/g, '｜');
-    }
-  }), []);
-
-  const FileNameSanitizer = useMemo(() => ({
-    sanitize: (fileName: string, ext: string | null | undefined): string => {
-      let base = fileName || 'unnamed';
-      base = WindowsPathHelper.sanitize(base);
-      base = base.replace(/[\s\r\n\t]+/g, ' ').trim();
-      base = base.replace(/[\s.]*$/, '');
-      if (!base) base = 'unnamed';
-
-      if (/^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i.test(base)) {
-        base += '_';
-      }
-
-      const cleanExt = ext ? (ext.startsWith('.') ? ext : `.${ext}`) : '';
-      const maxBaseLen = 250 - cleanExt.length;
-      const chars = Array.from(base);
-      if (chars.length > maxBaseLen) {
-        base = chars.slice(0, maxBaseLen - 3).join('') + '...';
-      }
-
-      return base + cleanExt;
-    },
-    sanitizeSegment: (segment: string, isFile: boolean, ext?: string | null): string => {
-      let base = segment || (isFile ? 'unnamed' : 'unnamed_dir');
-      base = WindowsPathHelper.sanitize(base);
-      base = base.replace(/[\s\r\n\t]+/g, ' ').trim();
-      base = base.replace(/[\s.]*$/, '');
-      if (!base) base = isFile ? 'unnamed' : 'unnamed_dir';
-
-      if (/^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i.test(base)) {
-        base += '_';
-      }
-
-      const cleanExt = isFile && ext ? (ext.startsWith('.') ? ext : `.${ext}`) : '';
-      const maxBaseLen = (isFile ? 250 : 240) - cleanExt.length;
-      const chars = Array.from(base);
-      if (chars.length > maxBaseLen) {
-        base = chars.slice(0, maxBaseLen - 3).join('') + '...';
-      }
-
-      return base + cleanExt;
-    }
-  }), [WindowsPathHelper]);
-
-  const FileNameFormatter = useMemo(() => ({
-    format: (template: string, metadata: { productId: string; title: string; actress: string; releaseDate: string; series: string } | null | undefined, ext: string | null | undefined): string => {
-      if (!metadata) throw new Error('Metadata cannot be null');
-
-      let result = template || '{title}';
-      const cleanTitle = TitleCleaner.clean(metadata.title, metadata.productId);
-
-      result = result.replace(/{id}/g, (metadata.productId || '').trim());
-      result = result.replace(/{title}/g, cleanTitle);
-      result = result.replace(/{actress}/g, (metadata.actress || '').trim());
-      result = result.replace(/{date}/g, (metadata.releaseDate || '').trim());
-      result = result.replace(/{series}/g, (metadata.series || '').trim());
-
-      result = result.trim();
-      if (!result) {
-        result = cleanTitle || metadata.productId || 'unnamed';
-      }
-
-      return FileNameSanitizer.sanitize(result, ext);
-    },
-    formatRelativePath: (template: string, metadata: { productId: string; title: string; actress: string; releaseDate: string; series: string } | null | undefined, ext: string | null | undefined): string => {
-      if (!metadata) throw new Error('Metadata cannot be null');
-
-      let result = template || '{title}';
-      const cleanTitle = TitleCleaner.clean(metadata.title, metadata.productId);
-
-      result = result.replace(/{id}/g, (metadata.productId || '').trim());
-      result = result.replace(/{title}/g, cleanTitle);
-      result = result.replace(/{actress}/g, (metadata.actress || '').trim());
-      result = result.replace(/{date}/g, (metadata.releaseDate || '').trim());
-      result = result.replace(/{series}/g, (metadata.series || '').trim());
-
-      result = result.trim();
-      if (!result) {
-        result = cleanTitle || metadata.productId || 'unnamed';
-      }
-
-      const normalized = result.replace(/\\/g, '/');
-      const rawSegments = normalized.split('/').map(s => s.trim()).filter(s => s.length > 0);
-
-      if (rawSegments.length === 0) {
-        return FileNameSanitizer.sanitizeSegment('unnamed', true, ext);
-      }
-
-      const safeSegments: string[] = [];
-      for (let i = 0; i < rawSegments.length; i++) {
-        const isLast = i === rawSegments.length - 1;
-        let seg = rawSegments[i];
-
-        if (seg === '..' || seg === '.') {
-          seg = seg === '..' ? '．．' : '．';
-        } else if (/^[a-zA-Z]:$/i.test(seg)) {
-          seg = seg.replace(':', '：');
-        }
-
-        const sanitized = FileNameSanitizer.sanitizeSegment(seg, isLast, isLast ? ext : undefined);
-        if (sanitized) {
-          safeSegments.push(sanitized);
-        }
-      }
-
-      return safeSegments.join('/');
-    }
-  }), [TitleCleaner, FileNameSanitizer]);
-
   const getFormattedPreviewName = useCallback((file: VideoFile): string => {
-    const ext = file.originalName.includes('.')
+    const ext = file.originalName.includes('.') 
       ? `.${file.originalName.split('.').pop()}`
       : '';
 
@@ -612,7 +408,7 @@ export default function App() {
     }
 
     return formattedName;
-  }, [renameTemplate, FileNameSanitizer, FileNameFormatter, ruleEnabled, rules, ruleEngine]);
+  }, [renameTemplate, ruleEnabled, rules, ruleEngine]);
 
   // Export Data Builder (Phase 62 Step 9)
   const handleGetExportData = useCallback(async (target: ExportTarget): Promise<ExportData> => {
@@ -744,7 +540,7 @@ export default function App() {
       return { ...f, status: 'NotFound', errorMessage: '作品ID未検出' };
     }));
     setStatusMessage('作品IDの抽出処理が完了しました。');
-  }, [regexPattern, extractIdFromFilename, addLog]);
+  }, [regexPattern, addLog]);
 
   const handleFetchMetadata = useCallback(async () => {
     setIsProcessing(true);
@@ -766,18 +562,19 @@ export default function App() {
     }
 
     let completedCount = 0;
-    const newCache = { ...metadataCache };
+    const effectiveConcurrency = Math.max(1, Math.min(3, Math.floor(maxConcurrency || 2)));
+    addLog('Info', 'GetMetadataUseCase', `メタデータ並行取得を開始します (並行数: ${effectiveConcurrency})...`);
 
-    for (const file of pendingFiles) {
+    await asyncPool(effectiveConcurrency, pendingFiles, async (file) => {
       const id = file.extractedId!;
       setFiles(prev => prev.map(f => f.id === file.id ? { ...f, status: 'searching' } : f));
 
-      if (useCache && newCache[id]) {
+      if (useCache && metadataCache[id]) {
         addLog('Info', 'LiteDbCacheAdapter', `キャッシュヒット: [${id}]`);
         setFiles(prev => prev.map(f => f.id === file.id ? {
           ...f,
           status: 'completed',
-          metadata: newCache[id],
+          metadata: metadataCache[id],
           detailUrl: `https://missav.ai/ja/${id.toLowerCase()}`
         } : f));
       } else {
@@ -814,8 +611,7 @@ export default function App() {
           }
 
           const meta = data.data;
-          newCache[id] = meta;
-          setMetadataCache(newCache);
+          updateMetadataCache(id, meta);
 
           setFiles(prev => prev.map(f => f.id === file.id ? {
             ...f,
@@ -839,12 +635,12 @@ export default function App() {
 
       completedCount++;
       setProgress(Math.round((completedCount / pendingFiles.length) * 100));
-    }
+    });
 
     setIsProcessing(false);
     setBrowserState('completed');
     setStatusMessage('メタデータ同期が完了しました。');
-  }, [files, metadataCache, useCache, addLog]);
+  }, [files, metadataCache, useCache, maxConcurrency, updateMetadataCache, addLog]);
 
   const handleUndoRename = useCallback(() => {
     if (renameHistory.length === 0) return;
@@ -987,15 +783,11 @@ EndGlobal`);
     setTimeout(() => setCopiedFile(null), 2000);
   }, []);
 
-  const handleAddNewFile = useCallback(() => {
-    const added = addNewFileFromHook((name) => extractIdFromFilename(name, regexPattern));
-    if (added) {
-      addLog('Info', 'MainViewModel', `手動入力でファイルを追加しました: ${added.originalName}`);
-      setStatusMessage(`ファイル「${added.originalName}」を追加しました。`);
-    } else {
-      setStatusMessage('追加するファイル名を入力してください。');
-    }
-  }, [addNewFileFromHook, extractIdFromFilename, regexPattern, addLog]);
+  const handleResetList = useCallback(() => {
+    handleResetFiles([]);
+    addLog('Info', 'MainViewModel', 'ファイルリストを初期化しました。');
+    setStatusMessage('ファイルリストを初期化しました。');
+  }, [handleResetFiles, addLog]);
 
   const handleOpenFilePicker = useCallback(() => {
     if (fileInputRef.current) {
@@ -1021,11 +813,12 @@ EndGlobal`);
   }, [addDroppedFiles, extractIdFromFilename, regexPattern, addLog]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
-    handleDropFromHook(
+    void handleDropFromHook(
       e,
       (name) => extractIdFromFilename(name, regexPattern),
       (count) => {
         addLog('Info', 'MainViewModel', `${count} 個のファイルをドラッグ＆ドロップで追加しました。`);
+        setStatusMessage(`${count} 個のファイルを追加しました。`);
       }
     );
   }, [handleDropFromHook, extractIdFromFilename, regexPattern, addLog]);
@@ -1044,7 +837,7 @@ EndGlobal`);
 
       {/* Main Body */}
       <main className="flex-1 p-4 sm:p-6 max-w-7xl w-full mx-auto flex flex-col gap-6">
-
+        
         {/* Error Notification Banner (Step 1 Error Handling) */}
         <ErrorNotificationBanner
           errorDetails={currentErrorDetails}
@@ -1056,15 +849,15 @@ EndGlobal`);
             }
           }}
         />
-
+        
         {/* TAB 1: WPF APP SIMULATOR */}
         {activeTab === 'simulator' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
-
+            
             {/* WPF Windows Frame Container */}
             <div className="lg:col-span-8 flex flex-col" id="wpf-window-simulator">
               <div className="bg-white border border-[#141414] overflow-hidden flex flex-col flex-1 min-h-[500px] rounded-none">
-
+                
                 {/* Windows Chrome Bar */}
                 <div className="bg-[#DCDAD7] border-b border-[#141414] px-4 py-2.5 flex items-center justify-between rounded-none">
                   <div className="flex items-center gap-2">
@@ -1078,154 +871,137 @@ EndGlobal`);
                   </div>
                 </div>
 
-                {/* Command Ribbon */}
-                <div className="bg-[#F0EFED] border-b border-[#141414] p-3 flex flex-wrap gap-2.5 items-center">
+                {/* Command Ribbon (3-Tier Workflow) */}
+                <div className="bg-[#F0EFED] border-b border-[#141414] p-3 flex items-start justify-between gap-4">
                   {/* Hidden File Input for OS File Picker Dialog */}
                   <input
                     type="file"
                     ref={fileInputRef}
                     onChange={handleFileInputChange}
                     multiple
-                    accept="video/*,.mp4,.mkv,.avi,.wmv,.mov,.flv,.ts,.m4v"
+                    accept="video/*,.mp4,.mkv,.avi,.wmv,.mov,.flv,.ts,.m4v,.webm"
                     className="hidden"
                   />
 
-                  <button
-                    type="button"
-                    onClick={handleOpenFilePicker}
-                    className="bg-emerald-700 hover:bg-emerald-800 text-white px-3 py-1.5 border border-emerald-900 text-xs font-bold flex items-center gap-1.5 transition-colors rounded-none cursor-pointer"
-                    title="OSのファイル選択ダイアログを開いて動画ファイルを追加します"
-                  >
-                    <FolderPlus className="w-3.5 h-3.5" />
-                    ファイル選択
-                  </button>
+                  <div className="flex flex-col gap-2.5 flex-1">
+                    {/* 1段目：入力・設定 */}
+                    <div className="flex flex-wrap gap-2.5 items-center">
+                      {/* 1. ファイル選択 */}
+                      <button 
+                        type="button"
+                        onClick={handleOpenFilePicker}
+                        className="bg-emerald-700 hover:bg-emerald-800 text-white px-3 py-1.5 border border-emerald-900 text-xs font-bold flex items-center gap-1.5 transition-colors rounded-none cursor-pointer"
+                        title="OSのファイル選択ダイアログを開いて動画ファイルを追加します"
+                      >
+                        <FolderPlus className="w-3.5 h-3.5" />
+                        ファイル選択
+                      </button>
 
-                  <button
-                    type="button"
-                    onClick={handleExtractIds}
-                    className="bg-white hover:bg-[#141414] hover:text-[#E4E3E0] text-[#141414] px-3 py-1.5 border border-[#141414] text-xs font-bold flex items-center gap-1.5 transition-colors rounded-none cursor-pointer"
-                    title="Phase 3: 作品ID抽出"
-                  >
-                    <Search className="w-3.5 h-3.5" />
-                    作品ID抽出 (Regex)
-                  </button>
+                      {/* 2. 作品ID抽出 */}
+                      <button 
+                        type="button"
+                        onClick={handleExtractIds}
+                        className="bg-white hover:bg-[#141414] hover:text-[#E4E3E0] text-[#141414] px-3 py-1.5 border border-[#141414] text-xs font-bold flex items-center gap-1.5 transition-colors rounded-none cursor-pointer"
+                        title="Phase 3: 作品ID抽出"
+                      >
+                        <Search className="w-3.5 h-3.5" />
+                        作品ID抽出
+                      </button>
 
-                  <button
-                    type="button"
-                    onClick={() => setRuleEnabled(prev => !prev)}
-                    className={`px-3 py-1.5 text-xs font-bold flex items-center gap-1.5 transition-colors border rounded-none cursor-pointer ${
-                      ruleEnabled
-                        ? 'bg-indigo-700 text-white border-indigo-700'
-                        : 'bg-white text-[#141414] border-[#141414] hover:bg-[#141414]/10'
-                    }`}
-                    title="動的ルールエンジンのプレビュー適用切替"
-                  >
-                    <Sliders className="w-3.5 h-3.5" />
-                    Rule: {ruleEnabled ? 'ON' : 'OFF'}
-                  </button>
+                      {/* 3. Rule ON/OFF */}
+                      <button 
+                        type="button"
+                        onClick={() => setRuleEnabled(prev => !prev)}
+                        className={`px-3 py-1.5 text-xs font-bold flex items-center gap-1.5 transition-colors border rounded-none cursor-pointer ${
+                          ruleEnabled
+                            ? 'bg-indigo-700 text-white border-indigo-700'
+                            : 'bg-white text-[#141414] border-[#141414] hover:bg-[#141414]/10'
+                        }`}
+                        title="動的ルールエンジンのプレビュー適用切替"
+                      >
+                        <Sliders className="w-3.5 h-3.5" />
+                        Rule: {ruleEnabled ? 'ON' : 'OFF'}
+                      </button>
+                    </div>
 
-                  <button
-                    type="button"
-                    onClick={() => handleExportCsv('preview')}
-                    className="bg-[#141414] text-white hover:bg-white hover:text-[#141414] border border-[#141414] px-3 py-1.5 border border-[#141414] text-xs font-bold flex items-center gap-1.5 transition-colors rounded-none cursor-pointer"
-                    title="Phase 4: CSV出力"
-                  >
-                    <FileSpreadsheet className="w-3.5 h-3.5" />
-                    プレビューCSV出力
-                  </button>
+                    {/* 2段目：取得・確認 */}
+                    <div className="flex flex-wrap gap-2.5 items-center">
+                      {/* 4. メタデータ取得 */}
+                      <button 
+                        type="button"
+                        onClick={handleFetchMetadata}
+                        disabled={isProcessing}
+                        className={`px-3 py-1.5 text-xs font-bold flex items-center gap-1.5 transition-colors border rounded-none cursor-pointer ${
+                          isProcessing 
+                            ? 'bg-[#DCDAD7] text-[#141414]/40 cursor-not-allowed border-[#141414]/20'
+                            : 'bg-[#141414] hover:bg-white hover:text-[#141414] text-white border-[#141414]'
+                        }`}
+                        title="Phase 5-8: メタデータ取得"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isProcessing ? 'animate-spin' : ''}`} />
+                        メタデータ取得
+                      </button>
 
-                  <div className="w-px h-5 bg-[#141414]/20"></div>
+                      {/* 5. プレビューCSV出力 */}
+                      <button 
+                        type="button"
+                        onClick={() => handleExportCsv('preview')}
+                        className="bg-white hover:bg-[#141414] hover:text-[#E4E3E0] text-[#141414] px-3 py-1.5 border border-[#141414] text-xs font-bold flex items-center gap-1.5 transition-colors rounded-none cursor-pointer"
+                        title="Phase 4: CSV出力"
+                      >
+                        <FileSpreadsheet className="w-3.5 h-3.5" />
+                        プレビューCSV出力
+                      </button>
+                    </div>
 
-                  <button
-                    type="button"
-                    onClick={handleFetchMetadata}
-                    disabled={isProcessing}
-                    className={`px-3 py-1.5 text-xs font-bold flex items-center gap-1.5 transition-colors border rounded-none cursor-pointer ${
-                      isProcessing
-                        ? 'bg-[#DCDAD7] text-[#141414]/40 cursor-not-allowed border-[#141414]/20'
-                        : 'bg-[#141414] hover:bg-white hover:text-[#141414] text-white border-[#141414]'
-                    }`}
-                    title="Phase 5-8: メタデータ取得"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${isProcessing ? 'animate-spin' : ''}`} />
-                    メタデータ取得
-                  </button>
+                    {/* 3段目：実行・出力 */}
+                    <div className="flex flex-wrap gap-2.5 items-center">
+                      {/* 6. リネーム実行 */}
+                      <button 
+                        type="button"
+                        onClick={() => setIsRenameExecutionModalOpen(true)}
+                        disabled={isProcessing}
+                        className={`px-3 py-1.5 text-xs font-bold flex items-center gap-1.5 transition-colors border rounded-none cursor-pointer ${
+                          isProcessing 
+                            ? 'bg-[#DCDAD7] text-[#141414]/40 cursor-not-allowed border-[#141414]/20'
+                            : 'bg-red-700 hover:bg-white hover:text-red-700 text-white border-red-700'
+                        }`}
+                        title="Phase 65: 実ファイルリネーム実行エンジン"
+                      >
+                        <Cpu className="w-3.5 h-3.5" />
+                        リネーム実行
+                      </button>
 
-                  <button
-                    type="button"
-                    onClick={() => setIsRenameExecutionModalOpen(true)}
-                    disabled={isProcessing}
-                    className={`px-3 py-1.5 text-xs font-bold flex items-center gap-1.5 transition-colors border rounded-none cursor-pointer ${
-                      isProcessing
-                        ? 'bg-[#DCDAD7] text-[#141414]/40 cursor-not-allowed border-[#141414]/20'
-                        : 'bg-red-700 hover:bg-white hover:text-red-700 text-white border-red-700'
-                    }`}
-                    title="Phase 65: 実ファイルリネーム実行エンジン"
-                  >
-                    <Cpu className="w-3.5 h-3.5" />
-                    リネーム物理実行
-                  </button>
+                      {/* 7. 結果CSV出力 */}
+                      <button 
+                        type="button"
+                        onClick={() => handleExportCsv('result')}
+                        className="bg-white hover:bg-[#141414] hover:text-[#E4E3E0] text-[#141414] px-3 py-1.5 border border-[#141414] text-xs font-bold flex items-center gap-1.5 transition-colors rounded-none cursor-pointer"
+                        title="Phase 4: CSV出力"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        結果CSV出力
+                      </button>
+                    </div>
+                  </div>
 
-                  <button
-                    type="button"
-                    onClick={() => handleExportCsv('result')}
-                    className="bg-white hover:bg-[#141414] hover:text-[#E4E3E0] text-[#141414] px-3 py-1.5 border border-[#141414] text-xs font-bold flex items-center gap-1.5 transition-colors rounded-none cursor-pointer"
-                    title="Phase 4: CSV出力"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    結果CSV出力
-                  </button>
-
-                  <div className="w-px h-5 bg-[#141414]/20 ml-auto"></div>
-
+                  {/* Undo Button (Outside the 3-tier workflow structure) */}
                   {renameHistory.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={handleUndoRename}
-                      className="bg-[#141414] text-white hover:bg-white hover:text-[#141414] border border-[#141414] px-2.5 py-1 text-xs font-bold transition-all rounded-none cursor-pointer"
-                      title="リネームのロールバック"
-                    >
-                      Undo
-                    </button>
+                    <div className="flex items-center">
+                      <button 
+                        type="button"
+                        onClick={handleUndoRename}
+                        className="bg-[#141414] text-white hover:bg-white hover:text-[#141414] border border-[#141414] px-2.5 py-1 text-xs font-bold transition-all rounded-none cursor-pointer"
+                        title="リネームのロールバック"
+                      >
+                        Undo
+                      </button>
+                    </div>
                   )}
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      handleResetFiles();
-                      addLog('Info', 'MainViewModel', 'ファイルリストを初期化しました。');
-                      setStatusMessage('ファイルを初期リストにリセットしました。');
-                    }}
-                    className="text-[#141414]/60 hover:text-red-600 p-1.5 border border-transparent hover:border-[#141414]/20 transition-all rounded-none cursor-pointer"
-                    title="リストを初期化"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-
-                {/* Add Custom File Bar */}
-                <div className="bg-[#E4E3E0] border-b border-[#141414] px-3 py-2 flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={newFileNameInput}
-                    onChange={(e) => setNewFileNameInput(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleAddNewFile()}
-                    placeholder="動画ファイル名を手動入力して追加 (例: SSNI-001.mp4)"
-                    className="flex-1 bg-white border border-[#141414] px-3 py-1 text-xs font-mono text-[#141414] focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleAddNewFile}
-                    className="bg-[#141414] text-white hover:bg-white hover:text-[#141414] border border-[#141414] px-3 py-1 text-xs font-bold transition-colors flex items-center gap-1 cursor-pointer shrink-0"
-                    title="入力したファイル名を手動でリストに追加します"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    手動追加
-                  </button>
                 </div>
 
                 {/* Main Table View Component (Step 1 + Virtual Scroll Step 3) */}
-                <RenameTable
+                <RenameTable 
                   files={files}
                   selectedFileId={selectedFileId}
                   setSelectedFileId={setSelectedFileId}
@@ -1247,10 +1023,11 @@ EndGlobal`);
                   handleSingleRenameFile={handleSingleRenameFile}
                   getFormattedPreviewName={getFormattedPreviewName}
                   openTroubleshootingModal={openTroubleshootingModal}
+                  onResetList={handleResetList}
                 />
 
                 {/* Selected File Details Preview Component (Step 1) */}
-                <RenamePreview
+                <RenamePreview 
                   selectedFile={selectedFile}
                   getFormattedPreviewName={getFormattedPreviewName}
                   onOpenEditModal={handleOpenMetadataEditModal}
@@ -1278,9 +1055,9 @@ EndGlobal`);
 
             {/* Right Settings & Logs Column */}
             <div className="lg:col-span-4 flex flex-col gap-4">
-
+              
               {/* Settings Panel Component (Step 1) */}
-              <SettingsPanel
+              <SettingsPanel 
                 renameTemplate={renameTemplate}
                 setRenameTemplate={setRenameTemplate}
                 regexPattern={regexPattern}
@@ -1302,10 +1079,11 @@ EndGlobal`);
                 accessDelayMs={accessDelayMs}
                 setAccessDelayMs={setAccessDelayMs}
                 addLog={addLog}
+                onClearClientCache={clearClientCache}
               />
 
               {/* Gemini Settings Component (Step 1) */}
-              <GeminiSettings
+              <GeminiSettings 
                 geminiApiKeyInput={geminiApiKeyInput}
                 setGeminiApiKeyInput={setGeminiApiKeyInput}
                 handleTestGeminiApi={handleTestGeminiApi}
@@ -1314,7 +1092,7 @@ EndGlobal`);
               />
 
               {/* Backup & History Panel (Phase 60 Step 1, 2, 4) */}
-              <BackupHistoryPanel
+              <BackupHistoryPanel 
                 currentSettings={{
                   renameTemplate,
                   geminiApiKey: geminiApiKeyInput,
@@ -1345,7 +1123,7 @@ EndGlobal`);
               />
 
               {/* Log Viewer Component (Step 1) */}
-              <LogViewer
+              <LogViewer 
                 logs={logs}
                 handleCopyLogs={() => {
                   const logText = logs.map(l => `[${l.timestamp}] [${l.level}] [${l.source}] ${l.message}`).join('\n');
@@ -1401,8 +1179,8 @@ EndGlobal`);
                       }`}
                     >
                       <span className={`w-5 h-5 text-[10px] font-mono font-bold flex items-center justify-center shrink-0 border ${
-                        selectedPhaseId === phase.id
-                          ? 'bg-white text-[#141414] border-white'
+                        selectedPhaseId === phase.id 
+                          ? 'bg-white text-[#141414] border-white' 
                           : 'bg-white text-[#141414] border-[#141414]'
                       }`}>
                         {phase.id}
@@ -1423,7 +1201,7 @@ EndGlobal`);
                 <p className="text-[11px] opacity-65 mb-3.5 leading-relaxed">
                   すべてのフェーズ、DI登録、xUnitテスト、WPFビューをパッケージ化したZIPを取得できます。
                 </p>
-                <button
+                <button 
                   type="button"
                   onClick={downloadCsharpProject}
                   className="w-full bg-[#141414] hover:bg-white hover:text-[#141414] text-white px-4 py-2 border border-[#141414] text-xs font-bold uppercase flex items-center justify-center gap-2 transition-all cursor-pointer"
@@ -1565,7 +1343,7 @@ EndGlobal`);
                 </p>
               </div>
 
-              <button
+              <button 
                 type="button"
                 onClick={() => {
                   setIsTesting(true);
@@ -1624,7 +1402,7 @@ EndGlobal`);
       </main>
 
       {/* Troubleshooting Modal Component (Step 1) */}
-      <TroubleshootingModal
+      <TroubleshootingModal 
         activeTroubleshootingError={activeTroubleshootingError}
         setActiveTroubleshootingError={setActiveTroubleshootingError}
       />

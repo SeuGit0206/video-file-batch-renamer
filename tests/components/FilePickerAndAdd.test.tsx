@@ -4,40 +4,58 @@ import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import App from '../../src/App';
 
-describe('File Picker & Manual Addition UI', () => {
-  it('renders "ファイル選択" button and "手動追加" button', () => {
+describe('File Picker & Workflow UI', () => {
+  it('renders "ファイル選択" button and 3-tier workflow buttons', () => {
     render(<App />);
 
-    const filePickBtn = screen.getByRole('button', { name: /ファイル選択/i });
+    // 1段目
+    const filePickBtn = screen.getByRole('button', { name: /^ファイル選択$/i });
     expect(filePickBtn).toBeTruthy();
 
-    const manualAddBtn = screen.getByRole('button', { name: /手動追加/i });
-    expect(manualAddBtn).toBeTruthy();
+    const idExtractBtn = screen.getByRole('button', { name: /^作品ID抽出$/i });
+    expect(idExtractBtn).toBeTruthy();
+
+    const ruleBtn = screen.getByRole('button', { name: /^Rule:/i });
+    expect(ruleBtn).toBeTruthy();
+
+    // 2段目
+    const fetchMetadataBtn = screen.getByRole('button', { name: /^メタデータ取得$/i });
+    expect(fetchMetadataBtn).toBeTruthy();
+
+    const previewCsvBtn = screen.getByRole('button', { name: /^プレビューCSV出力$/i });
+    expect(previewCsvBtn).toBeTruthy();
+
+    // 3段目
+    const renameExecBtn = screen.getByRole('button', { name: /^リネーム実行$/i });
+    expect(renameExecBtn).toBeTruthy();
+
+    const resultCsvBtn = screen.getByRole('button', { name: /^結果CSV出力$/i });
+    expect(resultCsvBtn).toBeTruthy();
+
+    // 旧名称が表示されていないことの確認
+    expect(screen.queryByRole('button', { name: /リネーム物理実行/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /作品ID抽出 \(Regex\)/i })).toBeNull();
+
+    // ツールバー
+    const resetListBtn = screen.getByRole('button', { name: /^リスト初期化$/i });
+    expect(resetListBtn).toBeTruthy();
   });
 
-  it('allows manual file addition by typing a filename and clicking 手動追加', () => {
+  it('allows file addition via file picker input and resets list via toolbar', () => {
     render(<App />);
 
-    const input = screen.getByPlaceholderText(/動画ファイル名を手動入力して追加/i);
-    const manualAddBtn = screen.getByRole('button', { name: /手動追加/i });
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    expect(fileInput).toBeTruthy();
 
-    fireEvent.change(input, { target: { value: 'TEST-999_sample.mp4' } });
-    fireEvent.click(manualAddBtn);
+    const testVideo = new File(['dummy content'], 'TEST-999.mp4', { type: 'video/mp4' });
+    fireEvent.change(fileInput, { target: { files: [testVideo] } });
 
-    // Verify the input is cleared
-    expect((input as HTMLInputElement).value).toBe('');
-  });
+    expect(screen.getAllByText('TEST-999.mp4').length).toBeGreaterThan(0);
 
-  it('shows notification when clicking 手動追加 with empty input', () => {
-    render(<App />);
+    // Click リスト初期化
+    const resetListBtn = screen.getByRole('button', { name: /リスト初期化/i });
+    fireEvent.click(resetListBtn);
 
-    const input = screen.getByPlaceholderText(/動画ファイル名を手動入力して追加/i);
-    const manualAddBtn = screen.getByRole('button', { name: /手動追加/i });
-
-    fireEvent.change(input, { target: { value: '' } });
-    fireEvent.click(manualAddBtn);
-
-    // Should indicate entering filename
-    expect(screen.getByText(/追加するファイル名を入力してください/i)).toBeTruthy();
+    expect(screen.queryByText('TEST-999.mp4')).toBeNull();
   });
 });
