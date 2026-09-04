@@ -1,155 +1,23 @@
 import { describe, it, expect } from 'vitest';
+import {
+  FileNameSanitizer,
+  FileNameFormatter,
+} from '../src/services/formatter';
 
-function cleanTitle(title: string, productId?: string): string {
-  if (!title) return '';
-  let cleaned = title.replace(/[\r\n\t]/g, ' ').replace(/　/g, ' ');
-
-  const unwantedPatterns = [
-    /\s*[|#-]\s*(?:MissAV|オンラインで無料|無料|High Quality|Subbed|日本語字幕|AV女優一覧|AV女優|無料動画|高画質|オンライン視聴).*$/gi,
-    /- MissAV\.ai/gi,
-    /\| MissAV\.ai/gi,
-    /無料動画/g,
-    /高画質/g,
-  ];
-  for (const pat of unwantedPatterns) {
-    cleaned = cleaned.replace(pat, '');
-  }
-
-  if (productId && productId.trim() !== '') {
-    const id = productId.trim().replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-    const idNoHyphen = productId.trim().replace(/-/g, '').replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-    const reId = new RegExp(`(?<![A-Za-z0-9])${id}(?![A-Za-z0-9])`, 'gi');
-    const reIdNoHyphen = new RegExp(`(?<![A-Za-z0-9])${idNoHyphen}(?![A-Za-z0-9])`, 'gi');
-    cleaned = cleaned.replace(reId, '').replace(reIdNoHyphen, '');
-  }
-
-  cleaned = cleaned.replace(/【[^】]*】/g, '').replace(/\[[^\]]*\]/g, '');
-  cleaned = cleaned.replace(/\s+/g, ' ').replace(/^[\s\-_|+#/\\]+|[\s\-_|+#/\\]+$/g, '');
-  return cleaned.trim();
-}
-
-function sanitizeFileName(fileName: string, ext?: string): string {
-  let base = fileName || 'unnamed';
-  base = base
-    .replace(/\\/g, '＼')
-    .replace(/\//g, '／')
-    .replace(/:/g, '：')
-    .replace(/\*/g, '＊')
-    .replace(/\?/g, '？')
-    .replace(/"/g, '”')
-    .replace(/</g, '＜')
-    .replace(/>/g, '＞')
-    .replace(/\|/g, '｜');
-
-  base = base.replace(/[\s\r\n\t]+/g, ' ').trim().replace(/[\s.]*$/, '');
-  if (!base) base = 'unnamed';
-
-  if (/^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i.test(base)) {
-    base += '_';
-  }
-
-  const cleanExt = ext ? (ext.startsWith('.') ? ext : `.${ext}`) : '';
-  const maxBaseLen = 250 - cleanExt.length;
-  if (base.length > maxBaseLen) {
-    const chars = Array.from(base);
-    base = chars.slice(0, maxBaseLen - 3).join('') + '...';
-  }
-  return base + cleanExt;
-}
-
-function sanitizeSegment(segment: string, isFile: boolean, ext?: string): string {
-  let base = segment || (isFile ? 'unnamed' : 'unnamed_dir');
-  base = base
-    .replace(/\\/g, '＼')
-    .replace(/\//g, '／')
-    .replace(/:/g, '：')
-    .replace(/\*/g, '＊')
-    .replace(/\?/g, '？')
-    .replace(/"/g, '”')
-    .replace(/</g, '＜')
-    .replace(/>/g, '＞')
-    .replace(/\|/g, '｜');
-
-  base = base.replace(/[\s\r\n\t]+/g, ' ').trim().replace(/[\s.]*$/, '');
-  if (!base) base = isFile ? 'unnamed' : 'unnamed_dir';
-
-  if (/^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i.test(base)) {
-    base += '_';
-  }
-
-  const cleanExt = isFile && ext ? (ext.startsWith('.') ? ext : `.${ext}`) : '';
-  const maxBaseLen = (isFile ? 250 : 240) - cleanExt.length;
-  const chars = Array.from(base);
-  if (chars.length > maxBaseLen) {
-    base = chars.slice(0, maxBaseLen - 3).join('') + '...';
-  }
-  return base + cleanExt;
-}
-
-function formatRelativePath(
+const formatFileName = (
   template: string,
-  metadata: { productId: string; title: string; actress: string; releaseDate: string; series: string },
+  metadata: { productId: string; title: string; actress: string; releaseDate: string; series: string; maker?: string; label?: string },
   ext: string
-): string {
-  let raw = template || '{title}';
-  const cTitle = cleanTitle(metadata.title, metadata.productId);
+) => FileNameFormatter.format(template, metadata, ext);
 
-  raw = raw.replace(/{id}/g, (metadata.productId || '').trim());
-  raw = raw.replace(/{title}/g, cTitle);
-  raw = raw.replace(/{actress}/g, (metadata.actress || '').trim());
-  raw = raw.replace(/{date}/g, (metadata.releaseDate || '').trim());
-  raw = raw.replace(/{series}/g, (metadata.series || '').trim());
-  raw = raw.replace(/{maker}/g, (metadata.series || 'Maker').trim());
-
-  raw = raw.trim();
-  if (!raw) {
-    raw = cTitle || metadata.productId || 'unnamed';
-  }
-
-  const normalized = raw.replace(/\\/g, '/');
-  const rawSegments = normalized.split('/').map(s => s.trim()).filter(s => s.length > 0);
-
-  if (rawSegments.length === 0) {
-    return sanitizeSegment('unnamed', true, ext);
-  }
-
-  const safeSegments: string[] = [];
-  for (let i = 0; i < rawSegments.length; i++) {
-    const isLast = i === rawSegments.length - 1;
-    let seg = rawSegments[i];
-
-    if (seg === '..' || seg === '.') {
-      seg = seg === '..' ? '．．' : '．';
-    } else if (/^[a-zA-Z]:$/i.test(seg)) {
-      seg = seg.replace(':', '：');
-    }
-
-    const sanitized = sanitizeSegment(seg, isLast, isLast ? ext : undefined);
-    if (sanitized) {
-      safeSegments.push(sanitized);
-    }
-  }
-
-  return safeSegments.join('/');
-}
-
-function formatFileName(
+const formatRelativePath = (
   template: string,
-  metadata: { productId: string; title: string; actress: string; releaseDate: string; series: string },
+  metadata: { productId: string; title: string; actress: string; releaseDate: string; series: string; maker?: string; label?: string },
   ext: string
-): string {
-  let result = template || '{title}';
-  const cTitle = cleanTitle(metadata.title, metadata.productId);
+) => FileNameFormatter.formatRelativePath(template, metadata, ext);
 
-  result = result.replace(/{id}/g, (metadata.productId || '').trim());
-  result = result.replace(/{title}/g, cTitle);
-  result = result.replace(/{actress}/g, (metadata.actress || '').trim());
-  result = result.replace(/{date}/g, (metadata.releaseDate || '').trim());
-  result = result.replace(/{series}/g, (metadata.series || '').trim());
-  result = result.replace(/{maker}/g, (metadata.series || 'Maker').trim());
+const sanitizeFileName = (fileName: string, ext?: string) => FileNameSanitizer.sanitize(fileName, ext);
 
-  return sanitizeFileName(result.trim(), ext);
-}
 
 describe('FileNameFormatter Simulation Test Suite', () => {
   it('テンプレートに基づいて各種プレビュー文字列を生成できること', () => {
