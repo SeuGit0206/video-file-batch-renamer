@@ -1,6 +1,6 @@
 import React, { useState, useRef, useMemo, useCallback } from 'react';
 import { 
-  Search, RefreshCw, CheckCircle2, AlertCircle, XCircle, Video, Check
+  Search, RefreshCw, CheckCircle2, AlertCircle, XCircle, Video, Check, Trash2
 } from 'lucide-react';
 import type { VideoFile } from '../types';
 import { RenameDiffHighlight } from './RenameDiffHighlight';
@@ -27,6 +27,7 @@ interface RenameTableProps {
   handleSingleRenameFile: (file: VideoFile) => void;
   getFormattedPreviewName: (file: VideoFile) => string;
   openTroubleshootingModal: (msg: string) => void;
+  onResetList?: () => void;
 }
 
 export const RenameTable: React.FC<RenameTableProps> = React.memo(({
@@ -50,7 +51,8 @@ export const RenameTable: React.FC<RenameTableProps> = React.memo(({
   handleSingleRefreshMetadata,
   handleSingleRenameFile,
   getFormattedPreviewName,
-  openTroubleshootingModal
+  openTroubleshootingModal,
+  onResetList
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState<number>(0);
@@ -213,6 +215,23 @@ export const RenameTable: React.FC<RenameTableProps> = React.memo(({
               {fileSortOrder === 'asc' ? '▲ 昇順' : '▼ 降順'}
             </button>
           </div>
+
+          {onResetList && (
+            <button
+              type="button"
+              onClick={onResetList}
+              disabled={files.length === 0}
+              className={`flex items-center gap-1 px-2.5 py-1 text-xs font-bold border transition-colors cursor-pointer ${
+                files.length === 0
+                  ? 'bg-transparent text-[#141414]/30 border-[#141414]/20 cursor-not-allowed'
+                  : 'bg-white hover:bg-red-600 hover:text-white hover:border-red-600 text-[#141414] border-[#141414]'
+              }`}
+              title="ファイルリストを初期化"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              リスト初期化
+            </button>
+          )}
         </div>
       </div>
 

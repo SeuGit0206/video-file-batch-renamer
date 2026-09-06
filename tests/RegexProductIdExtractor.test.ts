@@ -1,49 +1,9 @@
 import { describe, it, expect } from 'vitest';
+import { extractIdFromFilename } from '../src/extractors/RegexProductIdExtractor';
 
 /**
- * Regex Product ID Extractor logic test suite for Phase 53 Step 5
+ * Regex Product ID Extractor logic test suite for Phase 53 Step 5 & Phase 92 Step 3
  */
-function extractIdFromFilename(name: string, customPat?: string): string {
-  const base = name.split('.').slice(0, -1).join('.') || name;
-
-  if (customPat && customPat.trim() !== '') {
-    try {
-      let patternStr = customPat;
-      const flags = 'i';
-      if (customPat.startsWith('(?i)')) {
-        patternStr = customPat.replace('(?i)', '');
-      }
-      const regex = new RegExp(patternStr, flags);
-      const match = base.match(regex);
-      if (match) return match[0].toUpperCase();
-    } catch {
-      // ignore
-    }
-  }
-
-  const fc2Match = base.match(/(fc2-ppv|fc2ppv)-?([0-9]{5,8})/i);
-  if (fc2Match) {
-    return `FC2-PPV-${fc2Match[2]}`;
-  }
-
-  const hyphenMatch = base.match(/(?:^|[^a-zA-Z0-9])([a-zA-Z]{2,10})-([0-9]{2,5})(?:[^0-9]|$)/i);
-  if (hyphenMatch) {
-    return `${hyphenMatch[1].toUpperCase()}-${hyphenMatch[2]}`;
-  }
-
-  const noHyphenMatch = base.match(/([a-zA-Z]{2,6})([0-9]{3,5})/);
-  if (noHyphenMatch) {
-    return `${noHyphenMatch[1].toUpperCase()}-${noHyphenMatch[2]}`;
-  }
-
-  const caribbeanMatch = base.match(/([0-9]{6})_([0-9]{3})/);
-  if (caribbeanMatch) {
-    return caribbeanMatch[0];
-  }
-
-  return '';
-}
-
 describe('RegexProductIdExtractor Unit Tests', () => {
   it('標準形式 (ABC-123) を正常に抽出できること', () => {
     expect(extractIdFromFilename('ssni-001.mp4')).toBe('SSNI-001');

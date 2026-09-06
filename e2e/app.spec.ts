@@ -65,10 +65,10 @@ test.describe('Phase 66 Complete E2E Release Verification Suite', () => {
   });
 
   test('Step 5: Physical Rename Execution, Undo and Redo Flow, and Script Export', async ({ page }) => {
-    // Open Physical Rename Execution Modal via Command Ribbon button
-    const renamePhysicalBtn = page.getByRole('button', { name: 'リネーム物理実行' });
-    await expect(renamePhysicalBtn).toBeVisible();
-    await renamePhysicalBtn.click();
+    // Open Rename Execution Modal via Command Ribbon button
+    const renameBtn = page.getByRole('button', { name: 'リネーム実行' });
+    await expect(renameBtn).toBeVisible();
+    await renameBtn.click();
 
     await expect(page.getByText('実ファイルリネーム実行エンジン')).toBeVisible();
 
@@ -88,24 +88,23 @@ test.describe('Phase 66 Complete E2E Release Verification Suite', () => {
     await expect(page.getByText('実ファイルリネーム実行エンジン')).not.toBeVisible();
   });
 
-  test('Step 7: File Picker and Manual File Addition', async ({ page }) => {
+  test('Step 7: File Picker and Workflow Buttons', async ({ page }) => {
     // Check File Picker button
     const filePickBtn = page.getByRole('button', { name: 'ファイル選択' });
     await expect(filePickBtn).toBeVisible();
 
-    // Check Manual File Add input and button
-    const manualInput = page.getByPlaceholder('動画ファイル名を手動入力して追加 (例: SSNI-001.mp4)');
-    await expect(manualInput).toBeVisible();
+    // Check Workflow buttons across 3 tiers
+    await expect(page.getByRole('button', { name: '作品ID抽出' })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Rule:/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'メタデータ取得' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'プレビューCSV出力' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'リネーム実行' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '結果CSV出力' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'リネーム物理実行' })).not.toBeVisible();
 
-    const manualAddBtn = page.getByRole('button', { name: '手動追加' });
-    await expect(manualAddBtn).toBeVisible();
-
-    // Type new filename and click manual add
-    await manualInput.fill('SSNI-999_test.mp4');
-    await manualAddBtn.click();
-
-    // Verify input is cleared
-    await expect(manualInput).toHaveValue('');
+    // Check List Reset button in table toolbar
+    const resetListBtn = page.getByRole('button', { name: 'リスト初期化' });
+    await expect(resetListBtn).toBeVisible();
   });
 
   test('Step 6: Settings Persistence and App Config Export/Import', async ({ page }) => {
