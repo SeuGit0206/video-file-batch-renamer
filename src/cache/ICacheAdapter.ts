@@ -1,3 +1,9 @@
+export interface ICacheStats {
+  count: number;
+  maxEntries: number;
+  defaultTtlMs: number;
+}
+
 /**
  * キャッシュアダプター インターフェース
  */
@@ -6,4 +12,5 @@ export interface ICacheAdapter<T = unknown> {
   set(key: string, value: T, ttlMs?: number): Promise<void>;
   invalidate(key: string): Promise<void>;
   clear(): Promise<void>;
+  getStats?(): Promise<ICacheStats>;
 }

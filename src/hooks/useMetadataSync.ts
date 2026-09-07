@@ -68,11 +68,14 @@ export function useMetadataSync() {
     }
   }, []);
 
+  const clearClientCache = clearMetadataCache;
+
   return {
     metadataCache,
     setMetadataCache,
     updateMetadataCache,
     invalidateMetadataCache,
     clearMetadataCache,
+    clearClientCache,
   };
 }

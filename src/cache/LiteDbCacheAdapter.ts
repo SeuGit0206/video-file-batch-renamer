@@ -6,6 +6,8 @@ import * as path from 'path';
 interface CacheEnvelope<T> {
   value: T;
   expiresAt: number | null;
+  createdAt?: number;
+  updatedAt?: number;
 }
 
 interface CacheStorageSchema<T> {
@@ -18,7 +20,8 @@ export class LiteDbCacheAdapter<T = unknown> implements ICacheAdapter<T> {
   constructor(
     filePath: string = path.join(process.cwd(), 'data', 'cache-db.json'),
     private logger?: ILogger,
-    private defaultTtlMs: number = 300000 // 5分
+    private defaultTtlMs: number = 86400000, // 24時間 (24 * 60 * 60 * 1000)
+    private maxEntries: number = 500
   ) {
     this.filePath = filePath;
     this.ensureDirectoryExists();
@@ -46,7 +49,21 @@ export class LiteDbCacheAdapter<T = unknown> implements ICacheAdapter<T> {
       if (!raw || raw.trim() === '') {
         return {};
       }
-      return JSON.parse(raw) as CacheStorageSchema<T>;
+      const parsed = JSON.parse(raw) as CacheStorageSchema<T>;
+      const now = Date.now();
+      // 旧形式データの互換性担保 (createdAt / updatedAt がない場合の補正)
+      for (const key of Object.keys(parsed)) {
+        const item = parsed[key];
+        if (item) {
+          if (typeof item.createdAt !== 'number') {
+            item.createdAt = now;
+          }
+          if (typeof item.updatedAt !== 'number') {
+            item.updatedAt = now;
+          }
+        }
+      }
+      return parsed;
     } catch (err) {
       if (this.logger) {
         this.logger.error(`[LiteDbCache] Failed to load store: ${err instanceof Error ? err.message : String(err)}`);
@@ -56,11 +73,20 @@ export class LiteDbCacheAdapter<T = unknown> implements ICacheAdapter<T> {
   }
 
   private saveStore(store: CacheStorageSchema<T>): void {
+    const tempPath = `${this.filePath}.tmp.${Date.now()}_${Math.random().toString(36).slice(2)}`;
     try {
       this.ensureDirectoryExists();
       const raw = JSON.stringify(store, null, 2);
-      fs.writeFileSync(this.filePath, raw, 'utf-8');
+      fs.writeFileSync(tempPath, raw, 'utf-8');
+      fs.renameSync(tempPath, this.filePath);
     } catch (err) {
+      try {
+        if (fs.existsSync(tempPath)) {
+          fs.unlinkSync(tempPath);
+        }
+      } catch {
+        // ignore cleanup error
+      }
       if (this.logger) {
         this.logger.error(`[LiteDbCache] Failed to save store: ${err instanceof Error ? err.message : String(err)}`);
       }
@@ -79,7 +105,8 @@ export class LiteDbCacheAdapter<T = unknown> implements ICacheAdapter<T> {
       return null;
     }
 
-    if (item.expiresAt !== null && Date.now() > item.expiresAt) {
+    const now = Date.now();
+    if (item.expiresAt !== null && now > item.expiresAt) {
       delete store[normKey];
       this.saveStore(store);
       if (this.logger) {
@@ -87,6 +114,10 @@ export class LiteDbCacheAdapter<T = unknown> implements ICacheAdapter<T> {
       }
       return null;
     }
+
+    // LRU 更新: 最終アクセス日時を更新して保存
+    item.updatedAt = now;
+    this.saveStore(store);
 
     if (this.logger) {
       this.logger.info(`[LiteDbCache] Hit for key: ${normKey}`);
@@ -97,10 +128,51 @@ export class LiteDbCacheAdapter<T = unknown> implements ICacheAdapter<T> {
   public async set(key: string, value: T, ttlMs?: number): Promise<void> {
     const normKey = (key || '').trim().toUpperCase();
     const effectiveTtl = ttlMs !== undefined ? ttlMs : this.defaultTtlMs;
-    const expiresAt = effectiveTtl > 0 ? Date.now() + effectiveTtl : null;
+    const now = Date.now();
+    const expiresAt = effectiveTtl > 0 ? now + effectiveTtl : null;
 
     const store = this.loadStore();
-    store[normKey] = { value, expiresAt };
+    const existing = store[normKey];
+
+    store[normKey] = {
+      value,
+      expiresAt,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now
+    };
+
+    // 期限切れエントリの事前クリーンアップ
+    for (const k of Object.keys(store)) {
+      const entry = store[k];
+      if (entry && entry.expiresAt !== null && now > entry.expiresAt) {
+        delete store[k];
+      }
+    }
+
+    // 最大件数 (maxEntries) 超過時の LRU 削除
+    const keys = Object.keys(store);
+    if (keys.length > this.maxEntries) {
+      // updatedAt の昇順 (古い順) にソート
+      const sortedKeys = keys.sort((a, b) => {
+        const itemA = store[a];
+        const itemB = store[b];
+        const timeA = itemA?.updatedAt ?? 0;
+        const timeB = itemB?.updatedAt ?? 0;
+        return timeA - timeB;
+      });
+
+      const removeCount = keys.length - this.maxEntries;
+      for (let i = 0; i < removeCount; i++) {
+        const keyToRemove = sortedKeys[i];
+        if (keyToRemove) {
+          delete store[keyToRemove];
+          if (this.logger) {
+            this.logger.info(`[LiteDbCache] Evicted LRU key: ${keyToRemove}`);
+          }
+        }
+      }
+    }
+
     this.saveStore(store);
 
     if (this.logger) {
@@ -125,5 +197,22 @@ export class LiteDbCacheAdapter<T = unknown> implements ICacheAdapter<T> {
     if (this.logger) {
       this.logger.info(`[LiteDbCache] Cleared all keys`);
     }
+  }
+
+  public async getStats(): Promise<{ count: number; maxEntries: number; defaultTtlMs: number }> {
+    const store = this.loadStore();
+    const now = Date.now();
+    let validCount = 0;
+    for (const key of Object.keys(store)) {
+      const item = store[key];
+      if (item && (item.expiresAt === null || now <= item.expiresAt)) {
+        validCount++;
+      }
+    }
+    return {
+      count: validCount,
+      maxEntries: this.maxEntries,
+      defaultTtlMs: this.defaultTtlMs,
+    };
   }
 }

@@ -34,6 +34,18 @@ describe('ApiRoutes Test Suite', () => {
           methods: expect.objectContaining({ get: true }),
         })
       );
+      expect(routes).toContainEqual(
+        expect.objectContaining({
+          path: '/cache',
+          methods: expect.objectContaining({ delete: true }),
+        })
+      );
+      expect(routes).toContainEqual(
+        expect.objectContaining({
+          path: '/cache/stats',
+          methods: expect.objectContaining({ get: true }),
+        })
+      );
     });
 
     it('DI された MetadataController インスタンスが正しくハンドラーとして接続されること', async () => {

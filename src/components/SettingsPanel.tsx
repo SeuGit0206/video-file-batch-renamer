@@ -1,5 +1,5 @@
-import React from 'react';
-import { Settings } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Settings, Trash2, RefreshCw, Database } from 'lucide-react';
 import { RenameTemplatePreset } from './RenameTemplatePreset';
 
 interface SettingsPanelProps {
@@ -24,6 +24,7 @@ interface SettingsPanelProps {
   accessDelayMs: number;
   setAccessDelayMs: React.Dispatch<React.SetStateAction<number>>;
   addLog: (level: 'Debug' | 'Info' | 'Warning' | 'Error', source: string, message: string) => void;
+  onClearClientCache?: () => void;
 }
 
 export const SettingsPanel: React.FC<SettingsPanelProps> = React.memo(({
@@ -47,8 +48,62 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = React.memo(({
   setMaxConcurrency,
   accessDelayMs,
   setAccessDelayMs,
-  addLog
+  addLog,
+  onClearClientCache
 }) => {
+  const [cacheStats, setCacheStats] = useState<{ count: number; maxEntries: number; defaultTtlMs: number } | null>(null);
+  const [isLoadingStats, setIsLoadingStats] = useState<boolean>(false);
+  const [isClearingCache, setIsClearingCache] = useState<boolean>(false);
+  const [showConfirmModal, setShowConfirmModal] = useState<boolean>(false);
+  const [cacheMessage, setCacheMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const fetchCacheStats = useCallback(async () => {
+    try {
+      setIsLoadingStats(true);
+      const res = await fetch('/api/cache/stats');
+      if (res.ok) {
+        const data = await res.json();
+        setCacheStats(data);
+      }
+    } catch {
+      // ignore fetch errors
+    } finally {
+      setIsLoadingStats(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchCacheStats();
+  }, [fetchCacheStats]);
+
+  const handleClearCache = async () => {
+    setShowConfirmModal(false);
+    setIsClearingCache(true);
+    setCacheMessage(null);
+    try {
+      // 1. Clear server-side cache
+      const res = await fetch('/api/cache', { method: 'DELETE' });
+      if (!res.ok) {
+        throw new Error(`Server returned HTTP ${res.status}`);
+      }
+
+      // 2. Clear client-side cache
+      if (onClearClientCache) {
+        onClearClientCache();
+      }
+
+      addLog('Info', 'CacheManager', 'クライアントおよびサーバーのメタデータキャッシュを完全にクリアしました。');
+      setCacheMessage({ type: 'success', text: 'キャッシュを全消去しました。' });
+      await fetchCacheStats();
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      addLog('Error', 'CacheManager', `キャッシュクリア失敗: ${errMsg}`);
+      setCacheMessage({ type: 'error', text: `キャッシュ消去に失敗しました: ${errMsg}` });
+    } finally {
+      setIsClearingCache(false);
+    }
+  };
+
   return (
     <div className="bg-white border border-[#141414] p-4 rounded-none shadow-none flex flex-col gap-4">
       <h3 className="text-[10px] uppercase tracking-widest font-bold text-[#141414]/60 flex items-center gap-1.5">
@@ -148,6 +203,56 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = React.memo(({
           </label>
         </div>
 
+        {/* Cache Management Section (B-3) */}
+        <div className="border-t border-[#141414]/10 pt-2 flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <label className="text-[10px] text-[#141414]/80 uppercase font-bold flex items-center gap-1">
+              <Database className="w-3 h-3 text-[#141414]" />
+              キャッシュ管理・統計
+            </label>
+            <button
+              type="button"
+              onClick={fetchCacheStats}
+              disabled={isLoadingStats}
+              className="text-[9px] text-[#141414]/60 hover:text-[#141414] flex items-center gap-1 cursor-pointer font-mono"
+              title="キャッシュ統計を再取得"
+            >
+              <RefreshCw className={`w-2.5 h-2.5 ${isLoadingStats ? 'animate-spin' : ''}`} />
+              更新
+            </button>
+          </div>
+
+          <div className="bg-[#F0EFED] border border-[#141414]/20 p-2 flex flex-col gap-1.5 text-[10.5px] font-mono">
+            <div className="flex justify-between items-center">
+              <span className="text-[#141414]/70">保存件数:</span>
+              <span className="font-bold text-[#141414]">
+                {cacheStats ? `${cacheStats.count} / ${cacheStats.maxEntries} 件` : '取得中...'}
+              </span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-[#141414]/70">有効期限 (TTL):</span>
+              <span className="text-[#141414]">24時間 (LRU自動整理)</span>
+            </div>
+
+            <div className="pt-1.5 border-t border-[#141414]/10 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setShowConfirmModal(true)}
+                disabled={isClearingCache}
+                className="bg-white hover:bg-red-600 hover:text-white border border-[#141414] text-red-600 px-2.5 py-1 text-[10px] font-bold flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <Trash2 className="w-3 h-3" />
+                {isClearingCache ? '消去中...' : 'キャッシュ全消去'}
+              </button>
+              {cacheMessage && (
+                <span className={`text-[9.5px] ${cacheMessage.type === 'success' ? 'text-green-700' : 'text-red-600'}`}>
+                  {cacheMessage.text}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
         <div className="border-t border-[#141414]/10 pt-2 flex flex-col gap-2">
           <div className="grid grid-cols-2 gap-2">
             <div>
@@ -211,8 +316,40 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = React.memo(({
           </div>
         </div>
       </div>
+
+      {/* Confirmation Modal */}
+      {showConfirmModal && (
+        <div className="fixed inset-0 bg-[#141414]/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white border border-[#141414] max-w-sm w-full p-4 flex flex-col gap-3 shadow-lg">
+            <h4 className="text-xs font-bold text-[#141414] uppercase tracking-wider flex items-center gap-1.5">
+              <Trash2 className="w-4 h-4 text-red-600" />
+              キャッシュ全消去の確認
+            </h4>
+            <p className="text-[11px] text-[#141414]/80 leading-relaxed">
+              保存されているクライアントおよびサーバーのメタデータキャッシュをすべて消去します。この操作は取り消せません。続行しますか？
+            </p>
+            <div className="flex justify-end gap-2 pt-2 border-t border-[#141414]/10">
+              <button
+                type="button"
+                onClick={() => setShowConfirmModal(false)}
+                className="px-3 py-1 bg-[#F0EFED] hover:bg-[#141414] hover:text-white border border-[#141414]/20 text-[11px] font-bold cursor-pointer transition-colors"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={handleClearCache}
+                className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-[11px] font-bold cursor-pointer transition-colors"
+              >
+                全消去する
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 });
 
 SettingsPanel.displayName = 'SettingsPanel';
+

@@ -244,5 +244,98 @@ describe('MetadataController', () => {
       expect(jsonMock).toHaveBeenCalledWith(expect.objectContaining({ error: 'Custom Error Body' }));
     });
   });
+
+  describe('キャッシュ管理 API (DELETE /api/cache & GET /api/cache/stats)', () => {
+    it('clearCache: キャッシュアダプターの clear() が呼び出され、HTTP 200 を返すこと', async () => {
+      const mockCache = {
+        get: vi.fn(),
+        set: vi.fn(),
+        invalidate: vi.fn(),
+        clear: vi.fn().mockResolvedValue(undefined),
+      };
+      const controller = new MetadataController(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        mockCache
+      );
+      const { req, res, statusMock, jsonMock } = createMockExpressContext({});
+
+      await controller.clearCache(req, res);
+
+      expect(mockCache.clear).toHaveBeenCalled();
+      expect(statusMock).toHaveBeenCalledWith(HTTP_STATUS.OK);
+      expect(jsonMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: true,
+          message: 'Cache cleared successfully',
+        })
+      );
+    });
+
+    it('clearCache: cacheAdapter が未設定でも安全に HTTP 200 を返すこと', async () => {
+      const controller = new MetadataController();
+      const { req, res, statusMock, jsonMock } = createMockExpressContext({});
+
+      await controller.clearCache(req, res);
+
+      expect(statusMock).toHaveBeenCalledWith(HTTP_STATUS.OK);
+      expect(jsonMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: true,
+          message: 'Cache cleared successfully',
+        })
+      );
+    });
+
+    it('getCacheStats: キャッシュアダプターの getStats() が呼び出され、統計情報と HTTP 200 を返すこと', async () => {
+      const mockCache = {
+        get: vi.fn(),
+        set: vi.fn(),
+        invalidate: vi.fn(),
+        clear: vi.fn(),
+        getStats: vi.fn().mockResolvedValue({
+          count: 42,
+          maxEntries: 500,
+          defaultTtlMs: 86400000,
+        }),
+      };
+      const controller = new MetadataController(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        mockCache
+      );
+      const { req, res, statusMock, jsonMock } = createMockExpressContext({});
+
+      await controller.getCacheStats(req, res);
+
+      expect(mockCache.getStats).toHaveBeenCalled();
+      expect(statusMock).toHaveBeenCalledWith(HTTP_STATUS.OK);
+      expect(jsonMock).toHaveBeenCalledWith({
+        count: 42,
+        maxEntries: 500,
+        defaultTtlMs: 86400000,
+      });
+    });
+
+    it('getCacheStats: cacheAdapter が未設定の場合にデフォルト統計を返すこと', async () => {
+      const controller = new MetadataController();
+      const { req, res, statusMock, jsonMock } = createMockExpressContext({});
+
+      await controller.getCacheStats(req, res);
+
+      expect(statusMock).toHaveBeenCalledWith(HTTP_STATUS.OK);
+      expect(jsonMock).toHaveBeenCalledWith({
+        count: 0,
+        maxEntries: 500,
+        defaultTtlMs: 86400000,
+      });
+    });
+  });
 });
 

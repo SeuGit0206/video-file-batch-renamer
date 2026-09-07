@@ -4,6 +4,7 @@ import type { ILogger } from '../services';
 import { HTTP_STATUS, LOG_TAGS } from '../constants';
 import { LoggingService } from '../services';
 import { GetMetadataUseCase, type IGetMetadataUseCase } from '../usecases';
+import type { ICacheAdapter } from '../cache';
 import {
   ResponseFactory,
   ErrorResponseFactory,
@@ -21,13 +22,15 @@ export class MetadataController {
   private responseFactory: IResponseFactory;
   private errorResponseFactory: IErrorResponseFactory;
   private metricsCollector: IMetricsCollector;
+  private cacheAdapter?: ICacheAdapter<ScrapedMetadata>;
 
   constructor(
     getMetadataUseCaseOrFetcher?: IGetMetadataUseCase | FetchMetadataFn,
     logger?: ILogger,
     responseFactory?: IResponseFactory,
     errorResponseFactory?: IErrorResponseFactory,
-    metricsCollector?: IMetricsCollector
+    metricsCollector?: IMetricsCollector,
+    cacheAdapter?: ICacheAdapter<ScrapedMetadata>
   ) {
     if (!getMetadataUseCaseOrFetcher) {
       this.getMetadataUseCase = new GetMetadataUseCase();
@@ -40,6 +43,7 @@ export class MetadataController {
     this.responseFactory = responseFactory || new ResponseFactory();
     this.errorResponseFactory = errorResponseFactory || new ErrorResponseFactory();
     this.metricsCollector = metricsCollector || new NullMetricsCollector();
+    this.cacheAdapter = cacheAdapter;
   }
 
   /**
@@ -73,6 +77,45 @@ export class MetadataController {
 
       this.metricsCollector.recordRequest(Date.now() - startTime, false);
       return res.status(HTTP_STATUS.OK).json(body);
+    }
+  };
+
+  /**
+   * DELETE /api/cache ハンドラー
+   */
+  public clearCache = async (_req: Request, res: Response): Promise<Response> => {
+    try {
+      if (this.cacheAdapter) {
+        await this.cacheAdapter.clear();
+      }
+      this.logger.info('Server cache cleared successfully.');
+      const body = this.responseFactory.createSuccessResponse({
+        success: true,
+        message: 'Cache cleared successfully'
+      });
+      return res.status(HTTP_STATUS.OK).json(body);
+    } catch (error: unknown) {
+      this.logger.error('Failed to clear cache:', error instanceof Error ? error.message : String(error));
+      const { statusCode, body } = this.errorResponseFactory.createErrorResponse(error, 'CACHE_CLEAR');
+      return res.status(statusCode).json(body);
+    }
+  };
+
+  /**
+   * GET /api/cache/stats ハンドラー
+   */
+  public getCacheStats = async (_req: Request, res: Response): Promise<Response> => {
+    try {
+      let stats = { count: 0, maxEntries: 500, defaultTtlMs: 86400000 };
+      if (this.cacheAdapter && typeof this.cacheAdapter.getStats === 'function') {
+        stats = await this.cacheAdapter.getStats();
+      }
+      const body = this.responseFactory.createSuccessResponse(stats);
+      return res.status(HTTP_STATUS.OK).json(body);
+    } catch (error: unknown) {
+      this.logger.error('Failed to get cache stats:', error instanceof Error ? error.message : String(error));
+      const { statusCode, body } = this.errorResponseFactory.createErrorResponse(error, 'CACHE_STATS');
+      return res.status(statusCode).json(body);
     }
   };
 }

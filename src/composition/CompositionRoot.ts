@@ -436,7 +436,8 @@ export class CompositionRoot implements ICompositionRoot {
       this.logger,
       this.responseFactory,
       this.errorResponseFactory,
-      this.metricsCollector
+      this.metricsCollector,
+      this.cacheAdapter
     );
 
     this.systemController = new SystemController({

@@ -44,6 +44,8 @@ export function createMetadataRouter(
 
 
   router.get('/metadata', validator.sanitizeInput(), (req, res) => controller.getMetadata(req, res));
+  router.delete('/cache', (req, res) => controller.clearCache(req, res));
+  router.get('/cache/stats', (req, res) => controller.getCacheStats(req, res));
 
   return router;
 }
