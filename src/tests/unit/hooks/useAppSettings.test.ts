@@ -11,7 +11,7 @@ describe('useAppSettings Hook', () => {
   it('初期デフォルト値が正しく設定され、localStorageから復元される', () => {
     localStorage.setItem('cfg_cookie_path', 'custom/cookies.json');
     localStorage.setItem('cfg_log_days', '60');
-    localStorage.setItem('cfg_max_concurrency', '4');
+    localStorage.setItem('cfg_max_concurrency', '3');
     localStorage.setItem('cfg_delay_ms', '2000');
     localStorage.setItem('cfg_cache_path', 'custom/cache.db');
     localStorage.setItem('cfg_show_browser', 'true');
@@ -21,23 +21,24 @@ describe('useAppSettings Hook', () => {
     expect(result.current.renameTemplate).toBe('{title}');
     expect(result.current.cookiePath).toBe('custom/cookies.json');
     expect(result.current.logRetentionDays).toBe(60);
-    expect(result.current.maxConcurrency).toBe(4);
+    expect(result.current.maxConcurrency).toBe(3);
     expect(result.current.accessDelayMs).toBe(2000);
     expect(result.current.cacheSavePath).toBe('custom/cache.db');
     expect(result.current.showBrowser).toBe(true);
   });
 
-  it('設定値の変更時に localStorage が自動同期される', () => {
+  it('設定値の変更時に localStorage が自動同期され、maxConcurrency が安全にクランプされる', () => {
     const { result } = renderHook(() => useAppSettings());
 
     act(() => {
       result.current.setCookiePath('new/cookie/path.json');
-      result.current.setMaxConcurrency(8);
+      result.current.setMaxConcurrency(8); // 上限超過値は 3 にクランプ
       result.current.setShowBrowser(true);
     });
 
     expect(localStorage.getItem('cfg_cookie_path')).toBe('new/cookie/path.json');
-    expect(localStorage.getItem('cfg_max_concurrency')).toBe('8');
+    expect(localStorage.getItem('cfg_max_concurrency')).toBe('3');
+    expect(result.current.maxConcurrency).toBe(3);
     expect(localStorage.getItem('cfg_show_browser')).toBe('true');
   });
 

@@ -17,6 +17,14 @@ export interface AppSettingsState {
   ruleEnabled: boolean;
 }
 
+function clampConcurrency(val: unknown): number {
+  const num = typeof val === 'number' ? val : Number(val);
+  if (!Number.isFinite(num) || Number.isNaN(num)) {
+    return 2;
+  }
+  return Math.max(1, Math.min(3, Math.floor(num)));
+}
+
 export function useAppSettings() {
   // Core Renamer Settings
   const [renameTemplate, setRenameTemplate] = useState<string>('{title}');
@@ -45,13 +53,21 @@ export function useAppSettings() {
     }
   });
 
-  const [maxConcurrency, setMaxConcurrency] = useState<number>(() => {
+  const [maxConcurrency, setMaxConcurrencyState] = useState<number>(() => {
     try {
-      return Number((typeof window !== 'undefined' && localStorage.getItem('cfg_max_concurrency')) || '1');
+      const stored = typeof window !== 'undefined' ? localStorage.getItem('cfg_max_concurrency') : null;
+      return stored !== null ? clampConcurrency(stored) : 2;
     } catch {
-      return 1;
+      return 2;
     }
   });
+
+  const setMaxConcurrency = useCallback((val: number | ((prev: number) => number)) => {
+    setMaxConcurrencyState((prev) => {
+      const nextVal = typeof val === 'function' ? val(prev) : val;
+      return clampConcurrency(nextVal);
+    });
+  }, []);
 
   const [accessDelayMs, setAccessDelayMs] = useState<number>(() => {
     try {
