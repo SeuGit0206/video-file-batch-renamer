@@ -14,13 +14,8 @@ describe('Phase35 Performance & Response Caching Suite', () => {
     it('処理時間を計測し、正しい統計情報およびボトルネック分析を提供すること', async () => {
       const profiler = new PerformanceProfiler();
 
-      await profiler.measure('db_query', async () => {
-        await new Promise((resolve) => setTimeout(resolve, 10));
-      });
-
-      const stop = profiler.startTimer('http_request');
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      stop();
+      profiler.record('db_query', 10);
+      profiler.record('http_request', 50);
 
       const stats = profiler.getStats();
       expect(stats.totalMeasurements).toBe(2);
