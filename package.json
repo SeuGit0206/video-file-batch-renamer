@@ -22,7 +22,7 @@
     "typescript"
   ],
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
   },
   "type": "module",
   "scripts": {
@@ -35,7 +35,7 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test": "vitest run",
-    "test:unit": "vitest run tests/PlaywrightBrowserService.test.ts tests/HtmlParserService.test.ts tests/MetadataController.test.ts tests/ScrapingOrchestrator.test.ts tests/BrowserContextFactory.test.ts tests/BrowserPageFactory.test.ts tests/ResponseFactory.test.ts tests/ErrorResponseFactory.test.ts tests/BrowserLauncher.test.ts tests/MetadataBuilder.test.ts tests/RetryPolicy.test.ts tests/StealthStrategy.test.ts tests/CdpDiagnosticsService.test.ts tests/DiagnosticsStorageService.test.ts tests/GetMetadataUseCase.test.ts tests/CompositionRoot.test.ts tests/components/*.test.tsx",
+    "test:unit": "vitest run",
     "test:integration": "vitest run tests/PlaywrightBrowserService.integration.test.ts",
     "test:e2e": "playwright test",
     "test:coverage": "vitest run --coverage"
