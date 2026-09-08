@@ -272,7 +272,7 @@ export const RenameTable: React.FC<RenameTableProps> = React.memo(({
             {visibleFiles.length === 0 ? (
               <tr>
                 <td colSpan={7} className="p-8 text-center text-[#141414]/50 italic">
-                  条件に一致するビデオファイルがありません。ファイルをドラッグ＆ドロップするか「追加」してください。
+                  条件に一致するビデオファイルがありません。ファイルをドラッグ＆ドロップするかファイル選択してください。
                 </td>
               </tr>
             ) : (

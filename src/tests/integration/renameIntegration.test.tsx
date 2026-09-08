@@ -17,11 +17,16 @@ describe('Rename Engine Integration Test (Phase 65)', () => {
     expect(undoRedoClass).toBeDefined();
   });
 
-  it('App画面のリネーム物理実行ボタンからModalを起動し、一括実行およびUndo操作ができる', async () => {
+  it('App画面のリネーム実行ボタンからModalを起動し、一括実行およびUndo操作ができる', async () => {
     render(<App />);
 
-    // 1. リネーム物理実行ボタンをクリック
-    const physicalRenameBtn = screen.getByRole('button', { name: /リネーム物理実行/i });
+    // 0. ファイル選択ダイアログ経由で動画ファイルを追加
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const testVideo = new File(['dummy content'], 'SSIS-001.mp4', { type: 'video/mp4' });
+    fireEvent.change(fileInput, { target: { files: [testVideo] } });
+
+    // 1. リネーム実行ボタンをクリック
+    const physicalRenameBtn = screen.getByRole('button', { name: /^リネーム実行$/i });
     fireEvent.click(physicalRenameBtn);
 
     // Modalの起動確認

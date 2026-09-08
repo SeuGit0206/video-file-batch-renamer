@@ -23,6 +23,13 @@ describe('useVideoFileList Hook', () => {
     },
   ];
 
+  it('デフォルトで空のファイル一覧が初期化される', () => {
+    const { result } = renderHook(() => useVideoFileList());
+    expect(result.current.files.length).toBe(0);
+    expect(result.current.selectedFileId).toBeNull();
+    expect(result.current.selectedFile).toBeNull();
+  });
+
   it('初期ファイル一覧および選択状態が正しく設定される', () => {
     const { result } = renderHook(() => useVideoFileList({ initialFiles: customInitial }));
     expect(result.current.files.length).toBe(2);
@@ -110,56 +117,7 @@ describe('useVideoFileList Hook', () => {
     expect(result.current.files.length).toBe(2);
   });
 
-  it('addCustomFile / handleAddNewFile で拡張子が補完され作品IDが抽出される', () => {
-    const { result } = renderHook(() => useVideoFileList({ initialFiles: customInitial }));
-
-    act(() => {
-      result.current.setNewFileNameInput('IPX-999');
-    });
-
-    act(() => {
-      const added = result.current.handleAddNewFile((name) => {
-        const match = name.match(/[A-Z]{3,4}-[0-9]{3}/i);
-        return match ? match[0].toUpperCase() : '';
-      });
-      expect(added?.originalName).toBe('IPX-999.mp4');
-      expect(added?.extractedId).toBe('IPX-999');
-      expect(added?.status).toBe('pending');
-    });
-
-    expect(result.current.files.length).toBe(3);
-    expect(result.current.newFileNameInput).toBe('');
-  });
-
-  it('拡張子付き（大文字や別形式 .MKV, .avi）のファイル名追加時に二重付与されない', () => {
-    const { result } = renderHook(() => useVideoFileList({ initialFiles: customInitial }));
-
-    act(() => {
-      const added1 = result.current.addCustomFile('SSNI-999.MKV');
-      const added2 = result.current.addCustomFile('ABC-123.avi');
-      expect(added1?.originalName).toBe('SSNI-999.MKV');
-      expect(added2?.originalName).toBe('ABC-123.avi');
-    });
-
-    expect(result.current.files.length).toBe(4);
-  });
-
-  it('空文字や空白のみのファイル名は追加されず null を返す', () => {
-    const { result } = renderHook(() => useVideoFileList({ initialFiles: customInitial }));
-
-    act(() => {
-      result.current.setNewFileNameInput('   ');
-    });
-
-    act(() => {
-      const added = result.current.handleAddNewFile();
-      expect(added).toBeNull();
-    });
-
-    expect(result.current.files.length).toBe(2);
-  });
-
-  it('addDroppedFiles で複数ファイルが一括追加される', () => {
+  it('addDroppedFiles で動画ファイルのみが追加され、非動画や重複は除外される', () => {
     const { result } = renderHook(() => useVideoFileList({ initialFiles: customInitial }));
 
     act(() => {
@@ -167,6 +125,8 @@ describe('useVideoFileList Hook', () => {
         [
           { name: 'TEST-100.mp4', size: 1024000 },
           { name: 'UNKNOWN_FILE.avi', size: 500000 },
+          { name: 'document.txt', size: 100 }, // non-video
+          { name: 'SSNI-001.mp4', size: 2000 }, // duplicate
         ],
         (name) => (name.includes('TEST-100') ? 'TEST-100' : '')
       );
@@ -194,7 +154,7 @@ describe('useVideoFileList Hook', () => {
     expect(result.current.fileSortOrder).toBe('desc');
   });
 
-  it('ドラッグ＆ドロップイベントで dragActive が更新されドロップハンドラが動作する', () => {
+  it('ドラッグ＆ドロップイベントで dragActive が更新されドロップハンドラが動作する', async () => {
     const { result } = renderHook(() => useVideoFileList({ initialFiles: customInitial }));
 
     const fakeEvent = {
@@ -218,8 +178,8 @@ describe('useVideoFileList Hook', () => {
     expect(result.current.dragActive).toBe(false);
 
     let droppedCount = 0;
-    act(() => {
-      result.current.handleDrop(fakeEvent, undefined, (count) => {
+    await act(async () => {
+      await result.current.handleDrop(fakeEvent, undefined, (count) => {
         droppedCount = count;
       });
     });
