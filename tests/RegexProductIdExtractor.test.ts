@@ -50,4 +50,18 @@ describe('RegexProductIdExtractor Unit Tests', () => {
     const customPat = '(?i)\\b[a-z]{3}-[0-9]{3}\\b';
     expect(extractIdFromFilename('test-abc-123-video.mp4', customPat)).toBe('ABC-123');
   });
+
+  it('境界値および特殊入力（大文字小文字混在、空文字、記号混じり）を安全に処理できること', () => {
+    // 大文字小文字混在
+    expect(extractIdFromFilename('sSnI-001_1080p.mp4')).toBe('SSNI-001');
+    expect(extractIdFromFilename('MiDv123.avi')).toBe('MIDV-123');
+    // 特殊記号・カッコ混じり
+    expect(extractIdFromFilename('【超高画質】[FHD] ABP-999 (Uncensored).mp4')).toBe('ABP-999');
+    expect(extractIdFromFilename('(Tokyo-Hot) n1234.mp4')).toBe('');
+    // 短い数字・長い数字の境界
+    expect(extractIdFromFilename('PRESTIGE-01.mp4')).toBe('PRESTIGE-01');
+    expect(extractIdFromFilename('TEST-12345.mp4')).toBe('TEST-12345');
+    // 拡張子のないファイル名
+    expect(extractIdFromFilename('IPX-888')).toBe('IPX-888');
+  });
 });

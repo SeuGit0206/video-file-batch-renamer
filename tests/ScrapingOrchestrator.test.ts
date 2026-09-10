@@ -79,6 +79,12 @@ describe('ScrapingOrchestrator', () => {
         if (fnStr.includes('document.querySelector(\'title\')')) {
           return '<title>サンプルタイトル ABC-123 - MissAV</title>';
         }
+        if (fnStr.includes('document.documentElement')) {
+          return '<html><head><title>サンプルタイトル ABC-123 - MissAV</title></head><body>サンプル本文テキスト</body></html>';
+        }
+        if (fnStr.includes('document.body ? document.body.innerHTML') || fnStr.includes('innerHTML')) {
+          return '<body>サンプル本文テキスト</body>';
+        }
       }
       return null;
     });
