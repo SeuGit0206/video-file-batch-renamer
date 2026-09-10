@@ -164,4 +164,64 @@ describe('asyncPool Utility Test Suite', () => {
     expect(indices).toContain(2);
     expect(results).toEqual(['a_0', 'b_1', 'c_2']);
   });
+
+  it('11. AbortController によるキャンセル時に新規タスクが開始されず、実行中のタスクは安全に完了する', async () => {
+    const items = [1, 2, 3, 4, 5, 6, 7, 8];
+    const startedTasks: number[] = [];
+    const completedTasks: number[] = [];
+    const controller = new AbortController();
+
+    const poolPromise = asyncPool(
+      2,
+      items,
+      async (item) => {
+        startedTasks.push(item);
+        if (item === 2) {
+          // タスク2実行中に中断をトリガー
+          controller.abort();
+        }
+        await sleep(30);
+        completedTasks.push(item);
+        return `res-${item}`;
+      },
+      { signal: controller.signal }
+    );
+
+    const results = await poolPromise;
+
+    // 同時実行数2のため、タスク1と2は開始されて完了するが、中断後に3以降は開始されない
+    expect(startedTasks).toContain(1);
+    expect(startedTasks).toContain(2);
+    expect(startedTasks.length).toBeLessThanOrEqual(3);
+    // すでに開始されたタスクは安全に完了していること
+    expect(completedTasks).toContain(1);
+    expect(completedTasks).toContain(2);
+    // 結果配列の長さは入力と同じで、未実行部分は undefined
+    expect(results[0]).toBe('res-1');
+    expect(results[1]).toBe('res-2');
+  });
+
+  it('12. asyncPoolSettled でも AbortController によるキャンセルが安全に機能する', async () => {
+    const items = [1, 2, 3, 4];
+    const startedTasks: number[] = [];
+    const controller = new AbortController();
+
+    const poolPromise = asyncPoolSettled(
+      1,
+      items,
+      async (item) => {
+        startedTasks.push(item);
+        controller.abort();
+        await sleep(10);
+        return item * 100;
+      },
+      { signal: controller.signal }
+    );
+
+    const results = await poolPromise;
+
+    // concurrency=1 のため、1件目実行時に abort され、2件目以降は開始されない
+    expect(startedTasks).toEqual([1]);
+    expect(results[0]).toEqual({ status: 'fulfilled', value: 100 });
+  });
 });

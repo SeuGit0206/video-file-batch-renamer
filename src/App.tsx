@@ -3,7 +3,7 @@ import {
   Search, FileSpreadsheet, Cpu, Play, Download,
   CheckCircle2, RefreshCw, 
   FileCode, Layers,
-  Check, Sliders, FolderPlus
+  Check, Sliders, FolderPlus, XCircle
 } from 'lucide-react';
 import JSZip from 'jszip';
 import type { VideoFile, LogEntry } from './types';
@@ -170,6 +170,7 @@ export default function App() {
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [progress, setProgress] = useState<number>(0);
   const [statusMessage, setStatusMessage] = useState<string>('準備完了');
+  const abortControllerRef = useRef<AbortController | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([
     {
       id: 'l0',
@@ -542,10 +543,21 @@ export default function App() {
     setStatusMessage('作品IDの抽出処理が完了しました。');
   }, [regexPattern, addLog]);
 
+  const handleCancelProcessing = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      addLog('Warning', 'GetMetadataUseCase', 'ユーザーによってメタデータ取得処理が中断要求されました。');
+    }
+  }, [addLog]);
+
   const handleFetchMetadata = useCallback(async () => {
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    const signal = controller.signal;
+
     setIsProcessing(true);
-    setProgress(10);
-    setStatusMessage('メタデータ照会中...');
+    setProgress(0);
+    setStatusMessage('メタデータ照会中... (0 / 0 件)');
     addLog('Info', 'GetMetadataUseCase', 'メタデータ取得パイプラインを開始します...');
 
     setBrowserState('initializing');
@@ -558,88 +570,113 @@ export default function App() {
       setProgress(100);
       setStatusMessage('対象ファイルがありません。');
       setBrowserState('idle');
+      abortControllerRef.current = null;
       return;
     }
 
+    const totalFiles = pendingFiles.length;
+    setStatusMessage(`メタデータ照会中... (0 / ${totalFiles} 件)`);
     let completedCount = 0;
     const effectiveConcurrency = Math.max(1, Math.min(3, Math.floor(maxConcurrency || 2)));
     addLog('Info', 'GetMetadataUseCase', `メタデータ並行取得を開始します (並行数: ${effectiveConcurrency})...`);
 
-    await asyncPool(effectiveConcurrency, pendingFiles, async (file) => {
-      const id = file.extractedId!;
-      setFiles(prev => prev.map(f => f.id === file.id ? { ...f, status: 'searching' } : f));
+    try {
+      await asyncPool(
+        effectiveConcurrency,
+        pendingFiles,
+        async (file) => {
+          if (signal.aborted) return;
+          const id = file.extractedId!;
+          setFiles(prev => prev.map(f => f.id === file.id ? { ...f, status: 'searching' } : f));
 
-      if (useCache && metadataCache[id]) {
-        addLog('Info', 'LiteDbCacheAdapter', `キャッシュヒット: [${id}]`);
-        setFiles(prev => prev.map(f => f.id === file.id ? {
-          ...f,
-          status: 'completed',
-          metadata: metadataCache[id],
-          detailUrl: `https://missav.ai/ja/${id.toLowerCase()}`
-        } : f));
+          if (useCache && metadataCache[id]) {
+            addLog('Info', 'LiteDbCacheAdapter', `キャッシュヒット: [${id}]`);
+            setFiles(prev => prev.map(f => f.id === file.id ? {
+              ...f,
+              status: 'completed',
+              metadata: metadataCache[id],
+              detailUrl: `https://missav.ai/ja/${id.toLowerCase()}`
+            } : f));
+          } else {
+            try {
+              setBrowserState('navigating');
+              addLog('Info', 'PlaywrightBrowserService', `MissAV URLへ接続中: https://missav.ai/ja/${id.toLowerCase()}`);
+
+              const res = await fetch(`/api/metadata?id=${encodeURIComponent(id)}`, { signal });
+              let data: { error?: string; errorCode?: string; data?: ScrapedMetadata; debug?: ScraperDebugInfo } | null = null;
+              try {
+                data = await res.json();
+              } catch {
+                // non-json response
+              }
+
+              if (!res.ok) {
+                const errorMsg = data?.error || `HTTP ${res.status}: メタデータ取得失敗`;
+                const code = data?.errorCode as AppErrorCode | undefined;
+                throw new ScraperError(errorMsg, {
+                  status: res.status,
+                  code: code || (res.status === 404 ? AppErrorCode.METADATA_NOT_FOUND : undefined),
+                  debug: data?.debug,
+                });
+              }
+
+              if (data?.error || !data?.data) {
+                const errorMsg = data?.error || 'メタデータが見つかりませんでした';
+                const code = data?.errorCode as AppErrorCode | undefined;
+                throw new ScraperError(errorMsg, {
+                  status: 404,
+                  code: code || AppErrorCode.METADATA_NOT_FOUND,
+                  debug: data?.debug,
+                });
+              }
+
+              const meta = data.data;
+              updateMetadataCache(id, meta);
+
+              setFiles(prev => prev.map(f => f.id === file.id ? {
+                ...f,
+                status: 'completed',
+                metadata: meta,
+                detailUrl: meta.detailUrl || `https://missav.ai/ja/${id.toLowerCase()}`
+              } : f));
+              addLog('Info', 'ScrapingOrchestrator', `メタデータ取得成功: [${id}] - ${meta.title}`);
+            } catch (err: unknown) {
+              if (signal.aborted || (err instanceof Error && err.name === 'AbortError')) {
+                // 中断時はエラー扱いにせず、実行中のスキップのみ行う
+                return;
+              }
+              const msg = err instanceof Error ? err.message : String(err);
+              const classified = AppErrorClassifier.classify(err);
+              setCurrentErrorDetails(classified);
+              addLog('Error', 'PlaywrightBrowserService', `取得エラー [${id}]: ${msg}`);
+              setFiles(prev => prev.map(f => f.id === file.id ? {
+                ...f,
+                status: 'error',
+                errorMessage: msg
+              } : f));
+            }
+          }
+
+          completedCount++;
+          setProgress(Math.round((completedCount / totalFiles) * 100));
+          if (!signal.aborted) {
+            setStatusMessage(`メタデータ照会中... (${completedCount} / ${totalFiles} 件)`);
+          }
+        },
+        { signal }
+      );
+    } finally {
+      setIsProcessing(false);
+      abortControllerRef.current = null;
+      if (signal.aborted) {
+        setBrowserState('idle');
+        setStatusMessage(`メタデータ取得を中断しました (${completedCount} / ${totalFiles} 件完了)`);
+        addLog('Warning', 'GetMetadataUseCase', `メタデータ取得を中断しました (${completedCount} / ${totalFiles} 件完了)`);
       } else {
-        try {
-          setBrowserState('navigating');
-          addLog('Info', 'PlaywrightBrowserService', `MissAV URLへ接続中: https://missav.ai/ja/${id.toLowerCase()}`);
-
-          const res = await fetch(`/api/metadata?id=${encodeURIComponent(id)}`);
-          let data: { error?: string; errorCode?: string; data?: ScrapedMetadata; debug?: ScraperDebugInfo } | null = null;
-          try {
-            data = await res.json();
-          } catch {
-            // non-json response
-          }
-
-          if (!res.ok) {
-            const errorMsg = data?.error || `HTTP ${res.status}: メタデータ取得失敗`;
-            const code = data?.errorCode as AppErrorCode | undefined;
-            throw new ScraperError(errorMsg, {
-              status: res.status,
-              code: code || (res.status === 404 ? AppErrorCode.METADATA_NOT_FOUND : undefined),
-              debug: data?.debug,
-            });
-          }
-
-          if (data?.error || !data?.data) {
-            const errorMsg = data?.error || 'メタデータが見つかりませんでした';
-            const code = data?.errorCode as AppErrorCode | undefined;
-            throw new ScraperError(errorMsg, {
-              status: 404,
-              code: code || AppErrorCode.METADATA_NOT_FOUND,
-              debug: data?.debug,
-            });
-          }
-
-          const meta = data.data;
-          updateMetadataCache(id, meta);
-
-          setFiles(prev => prev.map(f => f.id === file.id ? {
-            ...f,
-            status: 'completed',
-            metadata: meta,
-            detailUrl: meta.detailUrl || `https://missav.ai/ja/${id.toLowerCase()}`
-          } : f));
-          addLog('Info', 'ScrapingOrchestrator', `メタデータ取得成功: [${id}] - ${meta.title}`);
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          const classified = AppErrorClassifier.classify(err);
-          setCurrentErrorDetails(classified);
-          addLog('Error', 'PlaywrightBrowserService', `取得エラー [${id}]: ${msg}`);
-          setFiles(prev => prev.map(f => f.id === file.id ? {
-            ...f,
-            status: 'error',
-            errorMessage: msg
-          } : f));
-        }
+        setBrowserState('completed');
+        setStatusMessage(`メタデータ同期が完了しました (${completedCount} / ${totalFiles} 件)`);
       }
-
-      completedCount++;
-      setProgress(Math.round((completedCount / pendingFiles.length) * 100));
-    });
-
-    setIsProcessing(false);
-    setBrowserState('completed');
-    setStatusMessage('メタデータ同期が完了しました。');
+    }
   }, [files, metadataCache, useCache, maxConcurrency, updateMetadataCache, addLog]);
 
   const handleUndoRename = useCallback(() => {
@@ -926,21 +963,28 @@ EndGlobal`);
 
                     {/* 2段目：取得・確認 */}
                     <div className="flex flex-wrap gap-2.5 items-center">
-                      {/* 4. メタデータ取得 */}
-                      <button 
-                        type="button"
-                        onClick={handleFetchMetadata}
-                        disabled={isProcessing}
-                        className={`px-3 py-1.5 text-xs font-bold flex items-center gap-1.5 transition-colors border rounded-none cursor-pointer ${
-                          isProcessing 
-                            ? 'bg-[#DCDAD7] text-[#141414]/40 cursor-not-allowed border-[#141414]/20'
-                            : 'bg-[#141414] hover:bg-white hover:text-[#141414] text-white border-[#141414]'
-                        }`}
-                        title="Phase 5-8: メタデータ取得"
-                      >
-                        <RefreshCw className={`w-3.5 h-3.5 ${isProcessing ? 'animate-spin' : ''}`} />
-                        メタデータ取得
-                      </button>
+                      {/* 4. メタデータ取得 / 中断する */}
+                      {isProcessing ? (
+                        <button
+                          type="button"
+                          onClick={handleCancelProcessing}
+                          className="bg-red-700 hover:bg-red-800 text-white px-3 py-1.5 border border-red-900 text-xs font-bold flex items-center gap-1.5 transition-colors rounded-none cursor-pointer animate-pulse"
+                          title="実行中のメタデータ取得処理を中断します"
+                        >
+                          <XCircle className="w-3.5 h-3.5" />
+                          中断する
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={handleFetchMetadata}
+                          className="bg-[#141414] hover:bg-white hover:text-[#141414] text-white px-3 py-1.5 border border-[#141414] text-xs font-bold flex items-center gap-1.5 transition-colors rounded-none cursor-pointer"
+                          title="Phase 5-8: メタデータ取得"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                          メタデータ取得
+                        </button>
+                      )}
 
                       {/* 5. プレビューCSV出力 */}
                       <button 

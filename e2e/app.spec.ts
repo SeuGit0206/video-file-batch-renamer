@@ -116,5 +116,58 @@ test.describe('Phase 66 Complete E2E Release Verification Suite', () => {
     await expect(page.getByText('設定のエクスポート (バックアップ)')).toBeVisible();
     await expect(page.getByText('設定のインポート (復元)')).toBeVisible();
   });
-});
 
+  test('Step 8: Metadata Fetch Progress and Cancellation Flow', async ({ page }) => {
+    // Keep the request in flight so the cancellation UI can be asserted reliably.
+    // Assertions below wait on UI state; this delay only simulates a slow metadata API.
+    await page.route('**/api/metadata?*', async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: {
+            title: 'E2E metadata',
+            detailUrl: 'https://example.test/e2e-metadata',
+          },
+        }),
+      });
+    });
+
+    // 1. Add a video file so metadata fetching has a real target.
+    await page.locator('input[type="file"][accept*="video"]').setInputFiles({
+      name: 'SSNI-001.mp4',
+      mimeType: 'video/mp4',
+      buffer: Buffer.from('Phase 110 E2E video fixture'),
+    });
+    await expect(page.getByText('1 個のファイルを追加しました。', { exact: true })).toBeVisible();
+
+    // 2. Extract a product ID from the added file.
+    const extractBtn = page.getByRole('button', { name: '作品ID抽出' });
+    await expect(extractBtn).toBeVisible();
+    await extractBtn.click();
+
+    // Verify ID extracted
+    await expect(page.getByText('作品IDの抽出処理が完了しました。')).toBeVisible();
+
+    // 3. Start metadata fetching.
+    const fetchBtn = page.getByRole('button', { name: 'メタデータ取得' });
+    await expect(fetchBtn).toBeVisible();
+    await fetchBtn.click();
+
+    // 4. Progress and cancellation controls are mandatory while processing.
+    await expect(page.getByText(/メタデータ照会中\.\.\. \(\d+ \/ \d+ 件\)/)).toBeVisible();
+    const cancelBtn = page.getByRole('button', { name: '中断する' });
+    await expect(cancelBtn).toBeVisible();
+    await expect(cancelBtn).toBeEnabled();
+    await cancelBtn.click();
+
+    // 5. Cancellation returns to the normal UI without showing a fetch error.
+    const statusBar = page.locator(
+      '#wpf-window-simulator div[class*="bg-[#DCDAD7]"][class*="font-mono"]',
+    );
+    await expect(statusBar.getByText(/メタデータ取得を中断しました/)).toBeVisible();
+    await expect(page.getByRole('button', { name: 'メタデータ取得' })).toBeVisible();
+    await expect(page.getByText(/メタデータ取得失敗|取得エラー/)).toHaveCount(0);
+  });
+});
