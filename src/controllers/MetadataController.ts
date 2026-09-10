@@ -4,7 +4,7 @@ import type { ILogger } from '../services';
 import { HTTP_STATUS, LOG_TAGS } from '../constants';
 import { LoggingService } from '../services';
 import { GetMetadataUseCase, type IGetMetadataUseCase } from '../usecases';
-import type { ICacheAdapter } from '../cache';
+import type { ICacheAdapter, ICacheStats } from '../cache';
 import {
   ResponseFactory,
   ErrorResponseFactory,
@@ -106,7 +106,7 @@ export class MetadataController {
    */
   public getCacheStats = async (_req: Request, res: Response): Promise<Response> => {
     try {
-      let stats = { count: 0, maxEntries: 500, defaultTtlMs: 86400000 };
+      let stats: ICacheStats = { count: 0, maxEntries: 500, defaultTtlMs: 86400000, sizeBytes: 0 };
       if (this.cacheAdapter && typeof this.cacheAdapter.getStats === 'function') {
         stats = await this.cacheAdapter.getStats();
       }
@@ -119,5 +119,3 @@ export class MetadataController {
     }
   };
 }
-
-

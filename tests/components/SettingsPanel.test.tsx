@@ -1,11 +1,38 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 import { SettingsPanel } from '../../src/components/SettingsPanel';
 
 describe('SettingsPanel Component', () => {
-  it('renders template, regex inputs and handles settings updates', () => {
+  let originalFetch: typeof fetch;
+  beforeEach(() => {
+    originalFetch = global.fetch;
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, options?: RequestInit) => {
+      if (url === '/api/cache/stats') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ count: 12, maxEntries: 500, defaultTtlMs: 86400000, sizeBytes: 131480 }),
+        });
+      }
+      if (url === '/api/cache' && options?.method === 'DELETE') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ success: true }),
+        });
+      }
+      return Promise.reject(new Error('Unknown url'));
+    }));
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    expect(global.fetch).toBe(originalFetch);
+  });
+
+  it('renders template, regex inputs and handles settings updates', async () => {
     const setRenameTemplate = vi.fn();
     const setRegexPattern = vi.fn();
     const setSkipDuplicates = vi.fn();
@@ -53,29 +80,22 @@ describe('SettingsPanel Component', () => {
     const regexStandardBtn = screen.getByText('標準 (ABC-123)');
     fireEvent.click(regexStandardBtn);
     expect(setRegexPattern).toHaveBeenCalledWith(String.raw`(?i)\b([a-z]{2,6})-([0-9]{3,5})\b`);
+
+    await waitFor(() => {
+      expect(screen.getByText('約 128.4 KB')).toBeTruthy();
+    });
   });
 
-  it('renders cache statistics and triggers clear confirmation and client cache clear callback', async () => {
+  it.each([
+    [undefined, '0 B'], [0, '0 B'], [-100, '0 B'], [500, '約 500 B'],
+    [1024, '約 1.0 KB'], [131480, '約 128.4 KB'], [2.5 * 1024 * 1024, '約 2.5 MB'],
+  ])('renders %s bytes as %s and clears the cache', async (sizeBytes, expectedText) => {
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ count: 12, maxEntries: 500, defaultTtlMs: 86400000, sizeBytes }),
+    } as Response);
     const onClearClientCache = vi.fn();
     const addLog = vi.fn();
-
-    // Mock global fetch for /api/cache/stats and /api/cache
-    const originalFetch = global.fetch;
-    global.fetch = vi.fn().mockImplementation((url: string, options?: RequestInit) => {
-      if (url === '/api/cache/stats') {
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({ count: 12, maxEntries: 500, defaultTtlMs: 86400000 }),
-        });
-      }
-      if (url === '/api/cache' && options?.method === 'DELETE') {
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({ success: true }),
-        });
-      }
-      return Promise.reject(new Error('Unknown url'));
-    });
 
     render(
       <SettingsPanel
@@ -107,6 +127,12 @@ describe('SettingsPanel Component', () => {
     expect(screen.getByText('キャッシュ管理・統計')).toBeTruthy();
     expect(screen.getByText('キャッシュ全消去')).toBeTruthy();
 
+    // Wait microtask for stats to load
+    await waitFor(() => {
+      expect(screen.getByText('キャッシュファイル容量:')).toBeTruthy();
+      expect(screen.getByText(expectedText)).toBeTruthy();
+    });
+
     // Click "キャッシュ全消去" to show confirmation dialog
     fireEvent.click(screen.getByText('キャッシュ全消去'));
     expect(screen.getByText('キャッシュ全消去の確認')).toBeTruthy();
@@ -115,13 +141,12 @@ describe('SettingsPanel Component', () => {
     const confirmBtn = screen.getByText('全消去する');
     fireEvent.click(confirmBtn);
 
-    // Wait microtask
-    await new Promise(resolve => setTimeout(resolve, 50));
-
-    expect(global.fetch).toHaveBeenCalledWith('/api/cache', { method: 'DELETE' });
-    expect(onClearClientCache).toHaveBeenCalled();
-    expect(addLog).toHaveBeenCalledWith('Info', 'CacheManager', expect.stringContaining('メタデータキャッシュを完全にクリアしました'));
-
-    global.fetch = originalFetch;
+    // Wait for async clear and reload
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith('/api/cache', { method: 'DELETE' });
+      expect(onClearClientCache).toHaveBeenCalled();
+      expect(addLog).toHaveBeenCalledWith('Info', 'CacheManager', expect.stringContaining('メタデータキャッシュを完全にクリアしました'));
+      expect(screen.getByText('キャッシュを全消去しました。')).toBeTruthy();
+    });
   });
 });

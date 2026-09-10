@@ -1,4 +1,4 @@
-import type { ICacheAdapter } from './ICacheAdapter';
+import type { ICacheAdapter, ICacheStats } from './ICacheAdapter';
 import type { ILogger } from '../services/LoggingService';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -14,8 +14,11 @@ interface CacheStorageSchema<T> {
   [key: string]: CacheEnvelope<T>;
 }
 
+// 1ファイルにつき1インスタンス・1プロセスで使用する。外部の更新は再読込しない。
 export class LiteDbCacheAdapter<T = unknown> implements ICacheAdapter<T> {
   private filePath: string;
+
+  private inMemoryStore: CacheStorageSchema<T> | null = null;
 
   constructor(
     filePath: string = path.join(process.cwd(), 'data', 'cache-db.json'),
@@ -41,13 +44,19 @@ export class LiteDbCacheAdapter<T = unknown> implements ICacheAdapter<T> {
   }
 
   private loadStore(): CacheStorageSchema<T> {
+    if (this.inMemoryStore !== null) {
+      return this.inMemoryStore;
+    }
+
     try {
       if (!fs.existsSync(this.filePath)) {
-        return {};
+        this.inMemoryStore = {};
+        return this.inMemoryStore;
       }
       const raw = fs.readFileSync(this.filePath, 'utf-8');
       if (!raw || raw.trim() === '') {
-        return {};
+        this.inMemoryStore = {};
+        return this.inMemoryStore;
       }
       const parsed = JSON.parse(raw) as CacheStorageSchema<T>;
       const now = Date.now();
@@ -63,12 +72,14 @@ export class LiteDbCacheAdapter<T = unknown> implements ICacheAdapter<T> {
           }
         }
       }
-      return parsed;
+      this.inMemoryStore = parsed;
+      return this.inMemoryStore;
     } catch (err) {
       if (this.logger) {
         this.logger.error(`[LiteDbCache] Failed to load store: ${err instanceof Error ? err.message : String(err)}`);
       }
-      return {};
+      this.inMemoryStore = {};
+      return this.inMemoryStore;
     }
   }
 
@@ -78,7 +89,20 @@ export class LiteDbCacheAdapter<T = unknown> implements ICacheAdapter<T> {
       this.ensureDirectoryExists();
       const raw = JSON.stringify(store, null, 2);
       fs.writeFileSync(tempPath, raw, 'utf-8');
-      fs.renameSync(tempPath, this.filePath);
+
+      // 一時的な置換失敗だけを最大3回試す。待機や非同期化を挟まず保存順序を保つ。
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          fs.renameSync(tempPath, this.filePath);
+          this.inMemoryStore = store;
+          return;
+        } catch (renameErr) {
+          const code = (renameErr as NodeJS.ErrnoException).code;
+          if ((code !== 'EBUSY' && code !== 'EPERM') || attempt === 2) {
+            throw renameErr;
+          }
+        }
+      }
     } catch (err) {
       try {
         if (fs.existsSync(tempPath)) {
@@ -90,6 +114,7 @@ export class LiteDbCacheAdapter<T = unknown> implements ICacheAdapter<T> {
       if (this.logger) {
         this.logger.error(`[LiteDbCache] Failed to save store: ${err instanceof Error ? err.message : String(err)}`);
       }
+      throw err;
     }
   }
 
@@ -108,16 +133,15 @@ export class LiteDbCacheAdapter<T = unknown> implements ICacheAdapter<T> {
     const now = Date.now();
     if (item.expiresAt !== null && now > item.expiresAt) {
       delete store[normKey];
-      this.saveStore(store);
+      // 次の保存成功時に削除を永続化。再起動後も expiresAt を判定するので値は返さない。
       if (this.logger) {
         this.logger.info(`[LiteDbCache] Expired for key: ${normKey}`);
       }
       return null;
     }
 
-    // LRU 更新: 最終アクセス日時を更新して保存
+    // 次の保存成功までメモリのみ更新。再起動時は最後に保存されたアクセス時刻を使う。
     item.updatedAt = now;
-    this.saveStore(store);
 
     if (this.logger) {
       this.logger.info(`[LiteDbCache] Hit for key: ${normKey}`);
@@ -131,7 +155,7 @@ export class LiteDbCacheAdapter<T = unknown> implements ICacheAdapter<T> {
     const now = Date.now();
     const expiresAt = effectiveTtl > 0 ? now + effectiveTtl : null;
 
-    const store = this.loadStore();
+    const store = { ...this.loadStore() };
     const existing = store[normKey];
 
     store[normKey] = {
@@ -182,7 +206,7 @@ export class LiteDbCacheAdapter<T = unknown> implements ICacheAdapter<T> {
 
   public async invalidate(key: string): Promise<void> {
     const normKey = (key || '').trim().toUpperCase();
-    const store = this.loadStore();
+    const store = { ...this.loadStore() };
     if (store[normKey]) {
       delete store[normKey];
       this.saveStore(store);
@@ -199,7 +223,7 @@ export class LiteDbCacheAdapter<T = unknown> implements ICacheAdapter<T> {
     }
   }
 
-  public async getStats(): Promise<{ count: number; maxEntries: number; defaultTtlMs: number }> {
+  public async getStats(): Promise<ICacheStats> {
     const store = this.loadStore();
     const now = Date.now();
     let validCount = 0;
@@ -209,10 +233,22 @@ export class LiteDbCacheAdapter<T = unknown> implements ICacheAdapter<T> {
         validCount++;
       }
     }
+
+    let sizeBytes = 0;
+    try {
+      if (fs.existsSync(this.filePath)) {
+        const stat = fs.statSync(this.filePath);
+        sizeBytes = stat.size;
+      }
+    } catch {
+      sizeBytes = 0;
+    }
+
     return {
       count: validCount,
       maxEntries: this.maxEntries,
       defaultTtlMs: this.defaultTtlMs,
+      sizeBytes,
     };
   }
 }

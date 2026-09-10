@@ -2,6 +2,7 @@ export interface ICacheStats {
   count: number;
   maxEntries: number;
   defaultTtlMs: number;
+  sizeBytes: number;
 }
 
 /**

@@ -1,6 +1,21 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Settings, Trash2, RefreshCw, Database } from 'lucide-react';
 import { RenameTemplatePreset } from './RenameTemplatePreset';
+import type { ICacheStats } from '../cache/ICacheAdapter';
+
+function formatBytes(bytes?: number): string {
+  if (bytes === undefined || bytes === null || isNaN(bytes) || bytes <= 0) {
+    return '0 B';
+  }
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let size = bytes;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex++;
+  }
+  return `約 ${unitIndex === 0 ? size.toFixed(0) : size.toFixed(1)} ${units[unitIndex]}`;
+}
 
 interface SettingsPanelProps {
   renameTemplate: string;
@@ -51,7 +66,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = React.memo(({
   addLog,
   onClearClientCache
 }) => {
-  const [cacheStats, setCacheStats] = useState<{ count: number; maxEntries: number; defaultTtlMs: number } | null>(null);
+  const [cacheStats, setCacheStats] = useState<ICacheStats | null>(null);
   const [isLoadingStats, setIsLoadingStats] = useState<boolean>(false);
   const [isClearingCache, setIsClearingCache] = useState<boolean>(false);
   const [showConfirmModal, setShowConfirmModal] = useState<boolean>(false);
@@ -227,6 +242,12 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = React.memo(({
               <span className="text-[#141414]/70">保存件数:</span>
               <span className="font-bold text-[#141414]">
                 {cacheStats ? `${cacheStats.count} / ${cacheStats.maxEntries} 件` : '取得中...'}
+              </span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-[#141414]/70">キャッシュファイル容量:</span>
+              <span className="font-bold text-[#141414]">
+                {cacheStats ? formatBytes(cacheStats.sizeBytes) : '取得中...'}
               </span>
             </div>
             <div className="flex justify-between items-center">

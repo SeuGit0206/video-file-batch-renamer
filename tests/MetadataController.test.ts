@@ -275,6 +275,20 @@ describe('MetadataController', () => {
       );
     });
 
+    it('clearCache: 保存失敗時は成功ではなくエラー応答を返すこと', async () => {
+      const mockCache = {
+        get: vi.fn(), set: vi.fn(), invalidate: vi.fn(),
+        clear: vi.fn().mockRejectedValue(new Error('cache save failed')),
+      };
+      const controller = new MetadataController(
+        undefined, undefined, undefined, undefined, undefined, mockCache
+      );
+      const { req, res, statusMock, jsonMock } = createMockExpressContext({});
+      await controller.clearCache(req, res);
+      expect(statusMock).toHaveBeenCalledWith(HTTP_STATUS.INTERNAL_SERVER_ERROR);
+      expect(jsonMock).not.toHaveBeenCalledWith(expect.objectContaining({ success: true }));
+    });
+
     it('clearCache: cacheAdapter が未設定でも安全に HTTP 200 を返すこと', async () => {
       const controller = new MetadataController();
       const { req, res, statusMock, jsonMock } = createMockExpressContext({});
@@ -300,6 +314,7 @@ describe('MetadataController', () => {
           count: 42,
           maxEntries: 500,
           defaultTtlMs: 86400000,
+          sizeBytes: 131480,
         }),
       };
       const controller = new MetadataController(
@@ -320,6 +335,7 @@ describe('MetadataController', () => {
         count: 42,
         maxEntries: 500,
         defaultTtlMs: 86400000,
+        sizeBytes: 131480,
       });
     });
 
@@ -334,8 +350,8 @@ describe('MetadataController', () => {
         count: 0,
         maxEntries: 500,
         defaultTtlMs: 86400000,
+        sizeBytes: 0,
       });
     });
   });
 });
-
