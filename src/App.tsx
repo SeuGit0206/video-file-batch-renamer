@@ -642,7 +642,10 @@ export default function App() {
               addLog('Info', 'ScrapingOrchestrator', `メタデータ取得成功: [${id}] - ${meta.title}`);
             } catch (err: unknown) {
               if (signal.aborted || (err instanceof Error && err.name === 'AbortError')) {
-                // 中断時はエラー扱いにせず、実行中のスキップのみ行う
+                // 中断した行だけを待機状態へ戻し、取得済みの結果は保持する。
+                setFiles(prev => prev.map(f => f.id === file.id && f.status === 'searching'
+                  ? { ...f, status: 'pending' }
+                  : f));
                 return;
               }
               const msg = err instanceof Error ? err.message : String(err);
