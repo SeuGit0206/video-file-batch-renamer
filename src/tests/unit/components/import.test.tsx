@@ -5,7 +5,61 @@ import { describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom';
 import { ImportModal } from '../../../components/import/ImportModal';
 import { ImportDiffViewer } from '../../../components/import/ImportDiffViewer';
-import type { ImportDiffInfo } from '../../../types/import';
+import { JsonImportService } from '../../../services/import/JsonImportService';
+import type { IImportService } from '../../../services/import/IImportService';
+import type { ImportStrategyFactory } from '../../../services/import/ImportStrategyFactory';
+import type { ImportValidationPolicy } from '../../../policies/ImportValidationPolicy';
+import type { ImportData, ImportDiffInfo, ImportResult } from '../../../types/import';
+
+const parsedData: ImportData = {
+  sourceFormat: 'json',
+  target: 'history',
+  items: [{ id: '1', title: 'テスト動画' }],
+};
+
+const diffInfo: ImportDiffInfo = {
+  totalChanges: 1,
+  addedCount: 1,
+  modifiedCount: 0,
+  removedCount: 0,
+  unchangedCount: 0,
+};
+
+const failedResult: ImportResult = {
+  success: false,
+  target: 'history',
+  format: 'json',
+  importedCount: 0,
+  failedCount: 1,
+  errors: ['履歴の保存に失敗しました'],
+  warnings: [],
+  timestamp: '2026-09-12T00:00:00.000Z',
+};
+
+const successfulResult: ImportResult = {
+  ...failedResult,
+  success: true,
+  importedCount: 1,
+  failedCount: 0,
+  errors: [],
+};
+
+function createImportDependencies(service: IImportService) {
+  const factory = {
+    getService: vi.fn(() => service),
+  } as unknown as typeof ImportStrategyFactory;
+  const policy = {
+    validateData: vi.fn(() => ({
+      isValid: true,
+      errors: [],
+      warnings: [],
+      recordCount: 1,
+      diff: diffInfo,
+    })),
+  } as unknown as typeof ImportValidationPolicy;
+
+  return { factory, policy };
+}
 
 describe('ImportDiffViewer Component Unit Tests', () => {
   it('差分なしの場合、「差分はありません」メッセージが表示される', () => {
@@ -152,5 +206,108 @@ describe('ImportModal Component Unit Tests', () => {
     });
 
     expect(onImportComplete).toHaveBeenCalled();
+  });
+
+  it('不正なJSONではエラーを表示し、インポートを実行しない', async () => {
+    const service = new JsonImportService();
+    const importData = vi.spyOn(service, 'importData');
+    const { factory, policy } = createImportDependencies(service);
+    const onImportComplete = vi.fn();
+
+    render(
+      <ImportModal
+        isOpen={true}
+        onClose={vi.fn()}
+        onImportComplete={onImportComplete}
+        importFactory={factory}
+        validationPolicy={policy}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText(/またはデータを直接貼り付け/i), {
+      target: { value: '{ invalid json' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /プレビュー & 差分確認/i }));
+
+    expect(await screen.findByText(/JSONパースエラー/)).toBeInTheDocument();
+    expect(importData).not.toHaveBeenCalled();
+    expect(onImportComplete).not.toHaveBeenCalled();
+    expect(screen.queryByText('インポートが完了しました')).not.toBeInTheDocument();
+  });
+
+  it('インポート失敗を表示し、処理状態を解除して再操作できる', async () => {
+    const service = {
+      format: 'json',
+      supportsTarget: vi.fn(() => true),
+      parse: vi.fn().mockResolvedValue(parsedData),
+      validate: vi.fn(),
+      importData: vi.fn().mockResolvedValue(failedResult),
+    } satisfies IImportService;
+    const { factory, policy } = createImportDependencies(service);
+    const onImportComplete = vi.fn();
+
+    render(
+      <ImportModal
+        isOpen={true}
+        onClose={vi.fn()}
+        onImportComplete={onImportComplete}
+        importFactory={factory}
+        validationPolicy={policy}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText(/またはデータを直接貼り付け/i), {
+      target: { value: JSON.stringify(parsedData) },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /プレビュー & 差分確認/i }));
+    const confirmButton = await screen.findByRole('button', { name: '確定して適用' });
+    fireEvent.click(confirmButton);
+
+    expect(await screen.findByText('履歴の保存に失敗しました')).toBeInTheDocument();
+    await waitFor(() => expect(confirmButton).not.toBeDisabled());
+    expect(service.importData).toHaveBeenCalledTimes(1);
+    expect(onImportComplete).not.toHaveBeenCalled();
+    expect(screen.queryByText('インポートが完了しました')).not.toBeInTheDocument();
+  });
+
+  it('インポート失敗後に同じ画面で再試行し、成功状態へ進む', async () => {
+    const service = {
+      format: 'json',
+      supportsTarget: vi.fn(() => true),
+      parse: vi.fn().mockResolvedValue(parsedData),
+      validate: vi.fn(),
+      importData: vi.fn()
+        .mockResolvedValueOnce(failedResult)
+        .mockResolvedValueOnce(successfulResult),
+    } satisfies IImportService;
+    const { factory, policy } = createImportDependencies(service);
+    const onImportComplete = vi.fn();
+
+    render(
+      <ImportModal
+        isOpen={true}
+        onClose={vi.fn()}
+        onImportComplete={onImportComplete}
+        importFactory={factory}
+        validationPolicy={policy}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText(/またはデータを直接貼り付け/i), {
+      target: { value: JSON.stringify(parsedData) },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /プレビュー & 差分確認/i }));
+    const confirmButton = await screen.findByRole('button', { name: '確定して適用' });
+
+    fireEvent.click(confirmButton);
+    expect(await screen.findByText('履歴の保存に失敗しました')).toBeInTheDocument();
+    await waitFor(() => expect(confirmButton).not.toBeDisabled());
+
+    fireEvent.click(confirmButton);
+    expect(await screen.findByText('インポートが完了しました')).toBeInTheDocument();
+    expect(screen.queryByText('履歴の保存に失敗しました')).not.toBeInTheDocument();
+    expect(service.importData).toHaveBeenCalledTimes(2);
+    expect(onImportComplete).toHaveBeenCalledTimes(1);
+    expect(onImportComplete).toHaveBeenCalledWith(successfulResult);
   });
 });

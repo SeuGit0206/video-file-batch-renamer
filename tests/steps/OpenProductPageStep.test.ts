@@ -7,6 +7,7 @@ import type { BrowserConfigFactory } from '../../src/browser/BrowserConfigFactor
 import type { PlaywrightBrowserService } from '../../src/browser/PlaywrightBrowserService';
 import type { IdentifiedPage } from '../../src/browser/types';
 import { HTTP_STATUS } from '../../src/constants';
+import { ScraperError } from '../../src/errors';
 
 describe('OpenProductPageStep Unit Tests', () => {
   let mockLogger: ILogger;
@@ -213,5 +214,131 @@ describe('OpenProductPageStep Unit Tests', () => {
       'https://missav.ai/ja/search/SSNI-001',
     ]);
     expect(ctx.status).toBe(HTTP_STATUS.NOT_FOUND);
+  });
+
+  it('page.goto が通信例外を投げても診断情報を保存して安全に終了すること', async () => {
+    const ctx = new ScrapingContext('abc-123', 'https://missav.ai/ja/');
+    const networkError = new Error('接続がリセットされました');
+    const mockPage = {
+      hashId: 'page-error',
+      url: vi.fn().mockReturnValue('https://missav.ai/ja/abc-123'),
+      title: vi.fn().mockResolvedValue('接続エラー'),
+      content: vi.fn().mockResolvedValue('<html><body>接続エラー</body></html>'),
+      goto: vi.fn().mockRejectedValue(networkError),
+      waitForLoadState: vi.fn(),
+      waitForSelector: vi.fn(),
+      evaluate: vi.fn().mockResolvedValue({}),
+      on: vi.fn(),
+    };
+    const { service } = createMockBrowserService(mockPage);
+    const step = new OpenProductPageStep(
+      mockSettingsProvider,
+      mockConfigFactory,
+      mockLogger,
+      mockCdpService,
+      mockStorageService,
+      () => service
+    );
+
+    await expect(step.execute(ctx)).resolves.toBeUndefined();
+
+    expect(ctx.status).toBe(HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    expect(ctx.exceptionMessage).toBe(networkError.message);
+    expect(ctx.exceptionStack).toBe(networkError.stack);
+    expect(ctx.finalUrl).toBe('https://missav.ai/ja/abc-123');
+    expect(ctx.page403Data).toEqual({
+      status: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+      title: '接続エラー',
+      htmlLen: '<html><body>接続エラー</body></html>'.length,
+      cookiesCount: 0,
+    });
+    expect(ctx.cfTimeline).toEqual(expect.arrayContaining([
+      expect.objectContaining({ event: 'Navigation Failed', error: networkError.message }),
+    ]));
+  });
+
+  it('HTTP 200でもタイトルが空なら正常な商品ページとして扱わないこと', async () => {
+    const ctx = new ScrapingContext('abc-123', 'https://missav.ai/ja/');
+    const html = '<html><body><h1>ABC-123</h1></body></html>';
+    const mockPage = {
+      hashId: 'page-empty-title',
+      url: vi.fn().mockReturnValue('https://missav.ai/ja/abc-123'),
+      title: vi.fn().mockResolvedValue(''),
+      content: vi.fn().mockResolvedValue(html),
+      goto: vi.fn().mockResolvedValue({ status: vi.fn().mockReturnValue(HTTP_STATUS.OK) }),
+      waitForLoadState: vi.fn().mockResolvedValue(undefined),
+      waitForSelector: vi.fn().mockResolvedValue(undefined),
+      evaluate: vi.fn().mockResolvedValue({}),
+      on: vi.fn(),
+    };
+    const { service } = createMockBrowserService(mockPage);
+    const step = new OpenProductPageStep(
+      mockSettingsProvider,
+      mockConfigFactory,
+      mockLogger,
+      mockCdpService,
+      mockStorageService,
+      () => service
+    );
+
+    await expect(step.execute(ctx)).rejects.toMatchObject({
+      name: ScraperError.name,
+      message: 'ページ取得失敗（HTMLまたはタイトルが空です）',
+      status: HTTP_STATUS.BAD_GATEWAY,
+      debug: expect.objectContaining({
+        finalUrl: 'https://missav.ai/ja/abc-123',
+        pageTitle: 'Failed to retrieve page title',
+        htmlLength: html.length,
+        status: HTTP_STATUS.OK,
+      }),
+    });
+
+    expect(ctx.status).toBe(HTTP_STATUS.OK);
+    expect(ctx.pageTitle).toBe('');
+    expect(ctx.html).toBe(html);
+  });
+
+  it('検索フォールバック中の通信失敗では元の404状態とURLを保持して安全に終了すること', async () => {
+    const ctx = new ScrapingContext('ssni-001', 'https://missav.ai/ja/');
+    const originalUrl = ctx.url;
+    const searchError = new Error('検索ページへ接続できません');
+    const initialResponse = { status: vi.fn().mockReturnValue(HTTP_STATUS.NOT_FOUND) };
+    const mockPage = {
+      hashId: 'page-search-error',
+      url: vi.fn().mockReturnValue(originalUrl),
+      title: vi.fn().mockResolvedValue('404 Page Not Found'),
+      content: vi.fn().mockResolvedValue('<html><body>Not Found</body></html>'),
+      goto: vi.fn()
+        .mockResolvedValueOnce(initialResponse)
+        .mockRejectedValueOnce(searchError),
+      waitForLoadState: vi.fn().mockResolvedValue(undefined),
+      waitForSelector: vi.fn().mockResolvedValue(undefined),
+      evaluate: vi.fn().mockResolvedValue({}),
+      on: vi.fn(),
+    };
+    const { service } = createMockBrowserService(mockPage);
+    const step = new OpenProductPageStep(
+      mockSettingsProvider,
+      mockConfigFactory,
+      mockLogger,
+      mockCdpService,
+      mockStorageService,
+      () => service
+    );
+
+    await expect(step.execute(ctx)).resolves.toBeUndefined();
+
+    expect(mockPage.goto).toHaveBeenNthCalledWith(1, originalUrl, expect.any(Object));
+    expect(mockPage.goto).toHaveBeenNthCalledWith(
+      2,
+      'https://missav.ai/ja/search/SSNI-001',
+      expect.any(Object)
+    );
+    expect(ctx.url).toBe(originalUrl);
+    expect(ctx.finalUrl).toBe(originalUrl);
+    expect(ctx.status).toBe(HTTP_STATUS.NOT_FOUND);
+    expect(ctx.response).toBe(initialResponse);
+    expect(ctx.exceptionMessage).toBe('');
+    expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining(searchError.message));
   });
 });

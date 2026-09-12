@@ -1,10 +1,15 @@
 // @vitest-environment jsdom
 import { renderHook, act } from '@testing-library/react';
-import { describe, expect, it, beforeEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAppSettings } from '../../../hooks/useAppSettings';
 
 describe('useAppSettings Hook', () => {
   beforeEach(() => {
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
     localStorage.clear();
   });
 
@@ -109,8 +114,59 @@ describe('useAppSettings Hook', () => {
     expect(result.current.ruleEnabled).toBe(true);
   });
 
-  it('無効なJSONをインポートした場合に false を返して安全に終了する', () => {
+  it.each([
+    ['NaN相当なら既定値', 'not-a-number', 2],
+    ['下限未満なら下限', '0', 1],
+    ['上限超過なら上限', '9', 3],
+  ])('保存済み同時実行数が%sへ安全に補正される', (_caseName, stored, expected) => {
+    localStorage.setItem('cfg_max_concurrency', stored);
+
     const { result } = renderHook(() => useAppSettings());
+
+    expect(result.current.maxConcurrency).toBe(expected);
+    expect(Number.isNaN(result.current.maxConcurrency)).toBe(false);
+  });
+
+  it('localStorageの読み込み失敗時も既定設定で初期化できる', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('ストレージを読み込めません', 'SecurityError');
+    });
+
+    const { result } = renderHook(() => useAppSettings());
+
+    expect(result.current.cookiePath).toBe('logs/cookies.json');
+    expect(result.current.logRetentionDays).toBe(30);
+    expect(result.current.maxConcurrency).toBe(2);
+    expect(result.current.accessDelayMs).toBe(1500);
+    expect(result.current.cacheSavePath).toBe('logs/cache.db');
+    expect(result.current.showBrowser).toBe(false);
+  });
+
+  it('localStorageの保存失敗時も現在の設定状態を維持する', () => {
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('ストレージへ保存できません', 'QuotaExceededError');
+    });
+
+    const { result } = renderHook(() => useAppSettings());
+
+    act(() => {
+      result.current.setCookiePath('memory-only/cookies.json');
+      result.current.setMaxConcurrency(3);
+      result.current.setShowBrowser(true);
+    });
+
+    expect(result.current.cookiePath).toBe('memory-only/cookies.json');
+    expect(result.current.maxConcurrency).toBe(3);
+    expect(result.current.showBrowser).toBe(true);
+  });
+
+  it('無効なJSONをインポートした場合に false を返して現在の設定を維持する', () => {
+    const { result } = renderHook(() => useAppSettings());
+
+    act(() => {
+      result.current.setRenameTemplate('{productId}_{title}');
+      result.current.setRuleEnabled(true);
+    });
 
     let success = true;
     act(() => {
@@ -118,5 +174,38 @@ describe('useAppSettings Hook', () => {
     });
 
     expect(success).toBe(false);
+    expect(result.current.renameTemplate).toBe('{productId}_{title}');
+    expect(result.current.ruleEnabled).toBe(true);
+  });
+
+  it('型が違う設定項目と配列でないrulesを無視する', () => {
+    const { result } = renderHook(() => useAppSettings());
+
+    act(() => {
+      result.current.setRenameTemplate('{productId}_{title}');
+      result.current.setMaxConcurrency(3);
+      result.current.setRules([]);
+      result.current.setRuleEnabled(true);
+    });
+
+    let success = false;
+    act(() => {
+      success = result.current.handleImportAppConfig(JSON.stringify({
+        settings: {
+          renameTemplate: 123,
+          maxConcurrency: 'not-a-number',
+          showBrowser: 'true',
+        },
+        rules: { id: 'not-an-array' },
+        ruleEnabled: 'false',
+      }));
+    });
+
+    expect(success).toBe(true);
+    expect(result.current.renameTemplate).toBe('{productId}_{title}');
+    expect(result.current.maxConcurrency).toBe(3);
+    expect(result.current.showBrowser).toBe(false);
+    expect(result.current.rules).toEqual([]);
+    expect(result.current.ruleEnabled).toBe(true);
   });
 });

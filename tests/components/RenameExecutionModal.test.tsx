@@ -118,4 +118,99 @@ describe('RenameExecutionModal Component Suite', () => {
       expect(screen.getByText(/バッチスクリプトをクリップボードにコピーしました/i)).toBeTruthy();
     });
   });
+
+  const partialFailureFiles: VideoFile[] = [
+    {
+      id: 'success-file',
+      originalName: '成功前.mp4',
+      status: 'completed',
+    },
+    {
+      id: 'failed-file',
+      originalName: '失敗前.mp4',
+      status: 'completed',
+    },
+  ];
+
+  const partialFailureFormattedName = (file: VideoFile) =>
+    file.id === 'success-file' ? '成功後.mp4' : '使用不可:名前.mp4';
+
+  function renderPartialFailureScenario() {
+    const manager = new RenameUndoRedoManager();
+    const transaction = new RenameTransaction(new RenameExecutionService());
+    const applyRename = vi.fn();
+
+    render(
+      <RenameExecutionModal
+        isOpen={true}
+        onClose={vi.fn()}
+        files={partialFailureFiles}
+        getFormattedName={partialFailureFormattedName}
+        renameTransaction={transaction}
+        undoRedoManager={manager}
+        onApplyRenameToFiles={applyRename}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '実ファイルリネーム一括実行' }));
+    return { applyRename };
+  }
+
+  it('部分失敗では成功したファイルだけを更新し、成功件数と失敗件数を表示する', () => {
+    const { applyRename } = renderPartialFailureScenario();
+
+    expect(screen.getByText('一部完了: 成功 1件 / 失敗 1件')).toBeTruthy();
+    expect(screen.getByText('成功')).toBeTruthy();
+    expect(screen.getByText('失敗')).toBeTruthy();
+    expect(screen.getByText(/ファイル名に使用できない文字が含まれています/)).toBeTruthy();
+    expect(applyRename).toHaveBeenCalledTimes(1);
+    expect(applyRename).toHaveBeenLastCalledWith([
+      expect.objectContaining({
+        id: 'success-file',
+        originalName: '成功後.mp4',
+        newName: '成功後.mp4',
+        status: 'completed',
+      }),
+      partialFailureFiles[1],
+    ]);
+  });
+
+  it('部分成功をUndoすると成功したファイルだけを元へ戻す', () => {
+    const { applyRename } = renderPartialFailureScenario();
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Undo (1)' })[0]);
+
+    expect(screen.getByText('Undo (元に戻す) を実行しました')).toBeTruthy();
+    expect(applyRename).toHaveBeenCalledTimes(2);
+    expect(applyRename).toHaveBeenLastCalledWith([
+      expect.objectContaining({
+        id: 'success-file',
+        originalName: '成功前.mp4',
+        status: 'pending',
+      }),
+      partialFailureFiles[1],
+    ]);
+    expect(screen.getAllByRole('button', { name: 'Undo (0)' }).every((button) => button.hasAttribute('disabled'))).toBe(true);
+    expect(screen.getAllByRole('button', { name: 'Redo (1)' }).every((button) => !button.hasAttribute('disabled'))).toBe(true);
+  });
+
+  it('Undo後のRedoでは成功分だけを再反映し、履歴件数を更新する', () => {
+    const { applyRename } = renderPartialFailureScenario();
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Undo (1)' })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Redo (1)' })[0]);
+
+    expect(screen.getByText('Redo (やり直し) を実行しました')).toBeTruthy();
+    expect(applyRename).toHaveBeenCalledTimes(3);
+    expect(applyRename).toHaveBeenLastCalledWith([
+      expect.objectContaining({
+        id: 'success-file',
+        originalName: '成功後.mp4',
+        status: 'completed',
+      }),
+      partialFailureFiles[1],
+    ]);
+    expect(screen.getAllByRole('button', { name: 'Undo (1)' }).every((button) => !button.hasAttribute('disabled'))).toBe(true);
+    expect(screen.getAllByRole('button', { name: 'Redo (0)' }).every((button) => button.hasAttribute('disabled'))).toBe(true);
+  });
 });
