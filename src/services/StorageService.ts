@@ -175,6 +175,7 @@ export class StorageService {
       }
     } catch (e) {
       console.error('Failed to save backup to localStorage', e);
+      throw e;
     }
 
     return newBackup;

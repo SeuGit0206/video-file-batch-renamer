@@ -104,6 +104,41 @@ describe('メタデータ取得・中断の画面操作', () => {
     expect(JSON.parse(localStorage.getItem(cacheKey)!)).not.toHaveProperty('ABC-123');
   });
 
+  it.each([
+    ['HTTPエラー', async () => response({ error: 'サーバーエラー' }, 500)],
+    ['通信例外', async () => { throw new TypeError('Failed to fetch'); }],
+    ['JSON不正', async () => ({ ...response(null), json: async () => { throw new SyntaxError('invalid JSON'); } })],
+    ['HTTP成功だがdataなし', async () => response({})],
+  ])('個別再取得の%sで旧データを保持し、再試行で正常に更新する', async (_name, failure) => {
+    const oldMetadata = { title: '保存済みタイトル', actress: '保存済み出演者' };
+    localStorage.setItem(cacheKey, JSON.stringify({ 'ABC-123': oldMetadata }));
+    const fetchMock = vi.fn().mockImplementation(failure);
+    stubMetadataFetch(fetchMock);
+    render(<App />);
+    addFiles('ABC-123.mp4');
+    startFetch();
+    await screen.findByText('メタデータ同期が完了しました (1 / 1 件)');
+    expect(fetchMock).not.toHaveBeenCalled();
+    const preview = rowFor('ABC-123.mp4').getByText(/保存済みタイトル/).textContent;
+
+    fireEvent.click(rowFor('ABC-123.mp4').getByTitle('個別メタデータ再取得'));
+    await waitFor(() => expect(rowFor('ABC-123.mp4').getByRole('button', { name: /CONFLICT/ })).toBeTruthy());
+    expect(rowFor('ABC-123.mp4').queryByText('FETCHING')).toBeNull();
+    expect(rowFor('ABC-123.mp4').getByText(/保存済みタイトル/).textContent).toBe(preview);
+    expect(JSON.parse(localStorage.getItem(cacheKey)!)).toEqual({ 'ABC-123': oldMetadata });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const newMetadata = { title: '更新後タイトル', actress: '更新後出演者' };
+    fetchMock.mockResolvedValue(response({ data: newMetadata }));
+    fireEvent.click(rowFor('ABC-123.mp4').getByTitle('個別メタデータ再取得'));
+    await waitFor(() => expect(rowFor('ABC-123.mp4').getByText('READY')).toBeTruthy());
+    expect(rowFor('ABC-123.mp4').queryByText('FETCHING')).toBeNull();
+    expect(rowFor('ABC-123.mp4').queryByRole('button', { name: /CONFLICT/ })).toBeNull();
+    expect(rowFor('ABC-123.mp4').getByText(/更新後タイトル/)).toBeTruthy();
+    expect(JSON.parse(localStorage.getItem(cacheKey)!)).toEqual({ 'ABC-123': newMetadata });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('中断で実行中の通信を止め、未着手ファイルへ通信せず、再実行で残りを取得できる', async () => {
     let interruptedSignal: AbortSignal | undefined;
     const fetchMock = vi.fn()

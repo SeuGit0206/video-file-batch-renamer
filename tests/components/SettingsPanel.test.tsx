@@ -86,6 +86,63 @@ describe('SettingsPanel Component', () => {
     });
   });
 
+  it.each(['HTTP 500', '通信例外'])('%sで消去失敗を表示し、再試行の成功時だけクライアントキャッシュを消去する', async failure => {
+    const onClearClientCache = vi.fn();
+    const addLog = vi.fn();
+    render(<SettingsPanel
+      renameTemplate="{title}" setRenameTemplate={vi.fn()}
+      regexPattern="" setRegexPattern={vi.fn()}
+      skipDuplicates={true} setSkipDuplicates={vi.fn()}
+      useCache={true} setUseCache={vi.fn()}
+      showBrowser={false} setShowBrowser={vi.fn()}
+      cookiePath="cookies.json" setCookiePath={vi.fn()}
+      cacheSavePath="cache.db" setCacheSavePath={vi.fn()}
+      logRetentionDays={30} setLogRetentionDays={vi.fn()}
+      maxConcurrency={2} setMaxConcurrency={vi.fn()}
+      accessDelayMs={500} setAccessDelayMs={vi.fn()}
+      addLog={addLog} onClearClientCache={onClearClientCache}
+    />);
+    await screen.findByText('約 128.4 KB');
+
+    let rejectRequest!: (reason: Error) => void;
+    let resolveRequest!: (value: Response) => void;
+    vi.mocked(global.fetch).mockImplementationOnce(() => new Promise<Response>((resolve, reject) => {
+      resolveRequest = resolve;
+      rejectRequest = reject;
+    }));
+    fireEvent.click(screen.getByRole('button', { name: 'キャッシュ全消去' }));
+    fireEvent.click(screen.getByRole('button', { name: '全消去する' }));
+    expect(global.fetch).toHaveBeenLastCalledWith('/api/cache', { method: 'DELETE' });
+    expect((screen.getByRole('button', { name: '消去中...' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(onClearClientCache).not.toHaveBeenCalled();
+
+    if (failure === 'HTTP 500') {
+      resolveRequest({ ok: false, status: 500 } as Response);
+    } else {
+      rejectRequest(new TypeError('Failed to fetch'));
+    }
+    await screen.findByText(/キャッシュ消去に失敗しました:/);
+    expect(screen.queryByText('キャッシュを全消去しました。')).toBeNull();
+    expect(screen.queryByRole('button', { name: '消去中...' })).toBeNull();
+    expect((screen.getByRole('button', { name: 'キャッシュ全消去' }) as HTMLButtonElement).disabled).toBe(false);
+    expect(onClearClientCache).not.toHaveBeenCalled();
+    expect(addLog).toHaveBeenCalledWith('Error', 'CacheManager', expect.stringContaining('キャッシュクリア失敗'));
+    expect(addLog).not.toHaveBeenCalledWith('Info', 'CacheManager', expect.any(String));
+    expect(screen.getByText('約 128.4 KB')).toBeTruthy();
+
+    // 通常の通信応答へ戻り、同じ画面から再試行する。
+    fireEvent.click(screen.getByRole('button', { name: 'キャッシュ全消去' }));
+    fireEvent.click(screen.getByRole('button', { name: '全消去する' }));
+    await screen.findByText('キャッシュを全消去しました。');
+    expect(screen.queryByText(/キャッシュ消去に失敗しました:/)).toBeNull();
+    expect(onClearClientCache).toHaveBeenCalledTimes(1);
+    expect(addLog).toHaveBeenCalledWith('Info', 'CacheManager', expect.stringContaining('完全にクリアしました'));
+    expect(vi.mocked(global.fetch).mock.calls.filter(([url]) => url === '/api/cache')).toHaveLength(2);
+    await waitFor(() => {
+      expect((screen.getByRole('button', { name: 'キャッシュ全消去' }) as HTMLButtonElement).disabled).toBe(false);
+    });
+  });
+
   it.each([
     [undefined, '0 B'], [0, '0 B'], [-100, '0 B'], [500, '約 500 B'],
     [1024, '約 1.0 KB'], [131480, '約 128.4 KB'], [2.5 * 1024 * 1024, '約 2.5 MB'],

@@ -700,7 +700,7 @@ export default function App() {
     try {
       const res = await fetch(`/api/metadata?id=${encodeURIComponent(id)}`);
       const data = await res.json();
-      if (!res.ok || data.error) throw new Error(data.error || '取得失敗');
+      if (!res.ok || data?.error || !data?.data) throw new Error(data?.error || '取得失敗');
 
       const meta = data.data;
       updateMetadataCache(id, meta);
@@ -710,6 +710,7 @@ export default function App() {
         status: 'completed',
         metadata: meta,
         title: meta.title || f.title,
+        errorMessage: undefined,
         actress: meta.actress || f.actress,
         releaseDate: meta.releaseDate || f.releaseDate,
         series: meta.series || f.series,
