@@ -90,15 +90,23 @@ export const BackupHistoryPanel: React.FC<BackupHistoryPanelProps> = ({
   };
 
   const handleDeleteBackup = (id: string) => {
-    const updated = StorageService.deleteBackup(id);
-    setBackups(updated);
-    addLog('Info', 'StorageService', 'バックアップを削除しました。');
+    try {
+      const updated = StorageService.deleteBackup(id);
+      setBackups(updated);
+      addLog('Info', 'StorageService', 'バックアップを削除しました。');
+    } catch (e) {
+      addLog('Error', 'StorageService', `バックアップ削除失敗: ${e instanceof Error ? e.message : '不明'}`);
+    }
   };
 
   const handleClearHistorySection = (type?: 'folders' | 'templates' | 'renames') => {
-    const updated = StorageService.clearHistory(type);
-    setHistory(updated);
-    addLog('Info', 'StorageService', `履歴 (${type || 'すべて'}) をクリアしました。`);
+    try {
+      const updated = StorageService.clearHistory(type);
+      setHistory(updated);
+      addLog('Info', 'StorageService', `履歴 (${type || 'すべて'}) をクリアしました。`);
+    } catch (e) {
+      addLog('Error', 'StorageService', `履歴消去失敗: ${e instanceof Error ? e.message : '不明'}`);
+    }
   };
 
   return (

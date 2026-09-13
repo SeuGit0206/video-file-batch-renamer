@@ -67,6 +67,7 @@ export class StorageService {
       }
     } catch (e) {
       console.error('Failed to save history to localStorage', e);
+      throw e;
     }
   }
 
@@ -192,6 +193,7 @@ export class StorageService {
       }
     } catch (e) {
       console.error('Failed to delete backup from localStorage', e);
+      throw e;
     }
     return backups;
   }

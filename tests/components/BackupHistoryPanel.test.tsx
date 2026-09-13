@@ -6,6 +6,7 @@ import { BackupHistoryPanel } from '../../src/components/BackupHistoryPanel';
 import { StorageService } from '../../src/services/StorageService';
 
 const backupKey = 'vrt_app_backups';
+const historyKey = 'vrt_app_history';
 const settings = {
   renameTemplate: '{title}',
   geminiApiKey: '',
@@ -24,6 +25,16 @@ function failBackupWrites() {
   const error = new DOMException('保存容量が不足しています', 'QuotaExceededError');
   const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (key, value) {
     if (key === backupKey) throw error;
+    original.call(this, key, value);
+  });
+  return { write, error };
+}
+
+function failHistoryWrites() {
+  const original = Storage.prototype.setItem;
+  const error = new DOMException('保存容量が不足しています', 'QuotaExceededError');
+  const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (key, value) {
+    if (key === historyKey) throw error;
     original.call(this, key, value);
   });
   return { write, error };
@@ -87,5 +98,57 @@ describe('バックアップ保存失敗と再試行', () => {
     expect(backups).toHaveLength(2);
     expect(backups[0].note).toBe('今回のメモ');
     expect(backups[1]).toEqual(previous);
+  });
+
+  it('バックアップ削除の保存失敗時は一覧と保存内容を維持し、再試行時だけ削除する', () => {
+    const previous = StorageService.createBackup(settings, [], '削除対象');
+    const stored = localStorage.getItem(backupKey);
+    const addLog = vi.fn();
+    render(<BackupHistoryPanel currentSettings={settings} files={[]}
+      onImportSettings={vi.fn()} onRestoreBackup={vi.fn()} addLog={addLog} />);
+    const { write } = failBackupWrites();
+
+    fireEvent.click(screen.getByTitle('削除'));
+
+    expect(write).toHaveBeenCalledWith(backupKey, expect.any(String));
+    expect(screen.getByText('削除対象')).toBeTruthy();
+    expect(localStorage.getItem(backupKey)).toBe(stored);
+    expect(StorageService.getBackups()).toEqual([previous]);
+    expect(addLog).not.toHaveBeenCalledWith('Info', 'StorageService', 'バックアップを削除しました。');
+    expect(addLog).toHaveBeenCalledWith('Error', 'StorageService', expect.stringContaining('バックアップ削除失敗'));
+
+    write.mockRestore();
+    addLog.mockClear();
+    fireEvent.click(screen.getByTitle('削除'));
+
+    expect(screen.queryByText('削除対象')).toBeNull();
+    expect(StorageService.getBackups()).toEqual([]);
+    expect(addLog).toHaveBeenCalledWith('Info', 'StorageService', 'バックアップを削除しました。');
+  });
+
+  it('履歴消去の保存失敗時は一覧と保存内容を維持し、再試行時だけ消去する', () => {
+    StorageService.addRecentTemplate('{id}_{title}');
+    const stored = localStorage.getItem(historyKey);
+    const addLog = vi.fn();
+    render(<BackupHistoryPanel currentSettings={settings} files={[]}
+      onImportSettings={vi.fn()} onRestoreBackup={vi.fn()} addLog={addLog} />);
+    const { write } = failHistoryWrites();
+
+    fireEvent.click(screen.getByRole('button', { name: '全履歴消去' }));
+
+    expect(write).toHaveBeenCalledWith(historyKey, expect.any(String));
+    expect(screen.getByText('{id}_{title}')).toBeTruthy();
+    expect(localStorage.getItem(historyKey)).toBe(stored);
+    expect(StorageService.getHistory().recentTemplates).toEqual(['{id}_{title}']);
+    expect(addLog).not.toHaveBeenCalledWith('Info', 'StorageService', expect.stringContaining('履歴 (すべて) をクリアしました'));
+    expect(addLog).toHaveBeenCalledWith('Error', 'StorageService', expect.stringContaining('履歴消去失敗'));
+
+    write.mockRestore();
+    addLog.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: '全履歴消去' }));
+
+    expect(screen.queryByText('{id}_{title}')).toBeNull();
+    expect(StorageService.getHistory().recentTemplates).toEqual([]);
+    expect(addLog).toHaveBeenCalledWith('Info', 'StorageService', expect.stringContaining('履歴 (すべて) をクリアしました'));
   });
 });
