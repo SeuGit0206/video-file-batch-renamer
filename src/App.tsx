@@ -33,7 +33,6 @@ import { ScraperError } from './errors/ScraperError';
 import { container } from './composition/container';
 import type { ExportData, ExportTarget } from './types/export';
 import type { ImportResult, ImportTarget } from './types/import';
-import type { ProcessRecord } from './services/statistics/StatisticsService';
 import type { RulePreset } from './types/rule';
 import { extractIdFromFilename } from './extractors';
 import { FileNameSanitizer, FileNameFormatter } from './services/formatter';
@@ -42,6 +41,11 @@ import { useAppSettings } from './hooks/useAppSettings';
 import { useMetadataSync } from './hooks/useMetadataSync';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useVideoFileList } from './hooks/useVideoFileList';
+import {
+  buildCurrentDataForImport,
+  buildExportData,
+  type AppDataTransferSettings,
+} from './services/AppDataTransferService';
 
 export default function App() {
   // Rule Engine Services (Container経由)
@@ -411,117 +415,48 @@ export default function App() {
     return formattedName;
   }, [renameTemplate, ruleEnabled, rules, ruleEngine]);
 
+  const dataTransferSettings = useMemo<AppDataTransferSettings>(() => ({
+    renameTemplate,
+    regexPattern,
+    skipDuplicates,
+    useCache,
+    cookiePath,
+    logRetentionDays,
+    maxConcurrency,
+    accessDelayMs,
+    cacheSavePath,
+    showBrowser,
+  }), [
+    renameTemplate,
+    regexPattern,
+    skipDuplicates,
+    useCache,
+    cookiePath,
+    logRetentionDays,
+    maxConcurrency,
+    accessDelayMs,
+    cacheSavePath,
+    showBrowser,
+  ]);
+
   // Export Data Builder (Phase 62 Step 9)
   const handleGetExportData = useCallback(async (target: ExportTarget): Promise<ExportData> => {
-    const now = new Date().toISOString();
-    if (target === 'metadata') {
-      return {
-        title: '動画メタデータ_エクスポート',
-        exportedAt: now,
-        items: files.map(f => ({
-          id: f.id,
-          originalName: f.originalName,
-          extractedId: f.extractedId || '',
-          status: f.status,
-          title: (f.metadata?.title as string) || '',
-          actress: (f.metadata?.actress as string) || '',
-          releaseDate: (f.metadata?.releaseDate as string) || '',
-        })),
-      };
-    } else if (target === 'logs') {
-      return {
-        title: 'システムログ_エクスポート',
-        exportedAt: now,
-        items: logs.map(l => ({
-          id: l.id,
-          timestamp: l.timestamp,
-          level: l.level,
-          source: l.source,
-          message: l.message,
-        })),
-      };
-    } else if (target === 'settings') {
-      return {
-        title: '設定データ_エクスポート',
-        exportedAt: now,
-        items: [{
-          renameTemplate,
-          regexPattern,
-          skipDuplicates,
-          useCache,
-          cookiePath,
-          logRetentionDays,
-          maxConcurrency,
-          accessDelayMs,
-          cacheSavePath,
-          showBrowser,
-        }],
-      };
-    } else if (target === 'statistics') {
-      const StatsService = container.getStatisticsService();
-      const records: ProcessRecord[] = files.map(f => ({
-        success: f.status === 'completed',
-        isPending: f.status === 'pending' || f.status === 'searching',
-        bytesProcessed: f.sizeBytes || 0,
-      }));
-      const stats = StatsService.calculateStatistics(records);
-      return {
-        title: '統計データ_エクスポート',
-        exportedAt: now,
-        items: [stats as unknown as Record<string, unknown>],
-      };
-    }
-    return {
-      title: '処理履歴_エクスポート',
-      exportedAt: now,
-      items: files.map(f => ({
-        id: f.id,
-        originalName: f.originalName,
-        extractedId: f.extractedId || '',
-        status: f.status,
-        renamedPreview: getFormattedPreviewName(f),
-      })),
-    };
-  }, [files, logs, renameTemplate, regexPattern, skipDuplicates, useCache, cookiePath, logRetentionDays, maxConcurrency, accessDelayMs, cacheSavePath, showBrowser, getFormattedPreviewName]);
+    return buildExportData(target, {
+      files,
+      logs,
+      settings: dataTransferSettings,
+      getFormattedPreviewName,
+    });
+  }, [files, logs, dataTransferSettings, getFormattedPreviewName]);
 
   // Import Data Handlers (Phase 63 Step 8)
   const handleGetCurrentDataForImport = useCallback(async (target: ImportTarget): Promise<Record<string, unknown>[] | Record<string, unknown> | null> => {
-    if (target === 'history' || target === 'metadata') {
-      return files.map(f => ({
-        id: f.id,
-        originalName: f.originalName,
-        extractedId: f.extractedId || '',
-        status: f.status,
-        title: (f.metadata?.title as string) || '',
-        actress: (f.metadata?.actress as string) || '',
-        releaseDate: (f.metadata?.releaseDate as string) || '',
-      }));
-    }
-    if (target === 'logs') {
-      return logs.map(l => ({
-        id: l.id,
-        timestamp: l.timestamp,
-        level: l.level,
-        source: l.source,
-        message: l.message,
-      }));
-    }
-    if (target === 'settings') {
-      return {
-        renameTemplate,
-        regexPattern,
-        skipDuplicates,
-        useCache,
-        cookiePath,
-        logRetentionDays,
-        maxConcurrency,
-        accessDelayMs,
-        cacheSavePath,
-        showBrowser,
-      };
-    }
-    return null;
-  }, [files, logs, renameTemplate, regexPattern, skipDuplicates, useCache, cookiePath, logRetentionDays, maxConcurrency, accessDelayMs, cacheSavePath, showBrowser]);
+    return buildCurrentDataForImport(target, {
+      files,
+      logs,
+      settings: dataTransferSettings,
+    });
+  }, [files, logs, dataTransferSettings]);
 
   const handleImportComplete = useCallback((result: ImportResult) => {
     addLog('Info', 'ImportModal', `データインポート成功: ターゲット=${result.target}, フォーマット=${result.format}, 適用件数=${result.importedCount}`);
