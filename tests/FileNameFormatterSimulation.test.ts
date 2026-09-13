@@ -20,6 +20,40 @@ const sanitizeFileName = (fileName: string, ext?: string) => FileNameSanitizer.s
 
 
 describe('FileNameFormatter Simulation Test Suite', () => {
+  it('メタデータがない場合はファイル名と相対パスの生成を拒否する', () => {
+    expect(() => FileNameFormatter.format('{title}', null, 'mp4')).toThrow('Metadata cannot be null');
+    expect(() => FileNameFormatter.formatRelativePath('{title}', undefined, 'mp4')).toThrow('Metadata cannot be null');
+  });
+
+  it('全メタデータ項目が欠損して展開結果が空なら安全な既定名を返す', () => {
+    const result = FileNameFormatter.format(
+      '{id}{title}{actress}{date}{series}',
+      {},
+      'mp4'
+    );
+
+    expect(result).toBe('unnamed.mp4');
+  });
+
+  it('相対パスでも全メタデータ項目が欠損した場合は安全な既定名を返す', () => {
+    const result = FileNameFormatter.formatRelativePath(
+      '{id}{title}{actress}{date}{series}',
+      {},
+      'mkv'
+    );
+
+    expect(result).toBe('unnamed.mkv');
+  });
+
+  it('空のパス要素と現在・親・ドライブ要素を安全な相対パスへ変換する', () => {
+    expect(FileNameFormatter.formatRelativePath('///', {}, 'mp4')).toBe('unnamed.mp4');
+
+    const safePath = FileNameFormatter.formatRelativePath('./../C:/movie', {}, 'mp4');
+    expect(safePath).toBe('．/．．/C：/movie.mp4');
+    expect(safePath).not.toContain('../');
+    expect(safePath).not.toContain('C:');
+  });
+
   it('テンプレートに基づいて各種プレビュー文字列を生成できること', () => {
     const meta = {
       productId: 'SSNI-001',
