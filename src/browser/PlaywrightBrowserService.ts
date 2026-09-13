@@ -14,6 +14,8 @@ import {
   type PageInitOptions
 } from '../factories';
 
+export const BROWSER_CLOSE_TIMEOUT_MS = 4000;
+
 /**
  * Playwright ブラウザのライフサイクルと操作を管理するサービスインターフェース / クラス
  */
@@ -195,7 +197,7 @@ export class PlaywrightBrowserService {
           // Playwright の browser.close() がハング・遅延した場合の安全タイムアウト保護 (4000ms)
           await Promise.race([
             browserToClose.close(),
-            new Promise<void>((resolve) => setTimeout(resolve, 4000))
+            new Promise<void>((resolve) => setTimeout(resolve, BROWSER_CLOSE_TIMEOUT_MS))
           ]);
         }
       } catch {
@@ -204,4 +206,3 @@ export class PlaywrightBrowserService {
     }
   }
 }
-

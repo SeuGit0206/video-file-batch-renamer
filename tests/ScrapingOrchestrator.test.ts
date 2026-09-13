@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Browser, BrowserContext, Page } from 'playwright';
 import type * as FsType from 'fs';
 import { ScrapingOrchestrator } from '../src/orchestrators/ScrapingOrchestrator';
-import { PlaywrightBrowserService } from '../src/browser/PlaywrightBrowserService';
+import { BROWSER_CLOSE_TIMEOUT_MS, PlaywrightBrowserService } from '../src/browser/PlaywrightBrowserService';
 import { CloudflareService, CookieService, GeminiSearchService } from '../src/services';
 import { HtmlParserService } from '../src/parsers';
 import { ScraperError } from '../src/errors';
@@ -104,6 +104,7 @@ describe('ScrapingOrchestrator', () => {
       expect(metadata.series).toBe('MissAV');
 
       // cleanup 保証確認
+      expect(mockBrowser.close).toHaveBeenCalledTimes(1);
       expect(PlaywrightBrowserService.prototype.dispose).toHaveBeenCalled();
     });
 
@@ -226,6 +227,52 @@ describe('ScrapingOrchestrator', () => {
   });
 
   describe('エラー処理とリソース解放 (Resource Cleanup)', () => {
+    it('browser.close() が解決しなくても timeout 後に cleanup を完了し、次回要求を処理できる', async () => {
+      vi.useFakeTimers();
+      const closePending = new Promise<void>(() => {});
+      const hangingBrowser = {
+        close: vi.fn().mockReturnValue(closePending),
+      } as unknown as Browser;
+      const metadata = { productId: 'ABC-123', title: '取得済みタイトル' };
+      let requestCount = 0;
+      const step = {
+        execute: vi.fn().mockImplementation(async (ctx) => {
+          requestCount++;
+          if (requestCount === 1) ctx.browser = hangingBrowser;
+          ctx.metadata = metadata;
+        }),
+      };
+      const logger = {
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+      };
+      const orchestrator = new ScrapingOrchestrator({ customSteps: [step], logger });
+      let completed = false;
+
+      try {
+        const fetchPromise = orchestrator.fetch('ABC-123').then((result) => {
+          completed = true;
+          return result;
+        });
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(hangingBrowser.close).toHaveBeenCalledTimes(1);
+        expect(completed).toBe(false);
+
+        await vi.advanceTimersByTimeAsync(BROWSER_CLOSE_TIMEOUT_MS);
+
+        await expect(fetchPromise).resolves.toEqual(metadata);
+        expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining(`Browser close timed out after ${BROWSER_CLOSE_TIMEOUT_MS}ms`));
+        await expect(orchestrator.fetch('ABC-123')).resolves.toEqual(metadata);
+        expect(step.execute).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('ブラウザ起動やアクセス失敗時にも、finallyブロックでcleanupが確実に実行される', async () => {
       mockPage.goto.mockRejectedValueOnce(new Error('Navigation Timeout'));
 

@@ -73,6 +73,25 @@ describe('PlaywrightBrowserService', () => {
       expect(browser2).toBe(mockBrowser);
     });
 
+    it('保持している Browser が切断済みの場合は次の initialize() で再生成する', async () => {
+      const replacementBrowser = {
+        isConnected: vi.fn().mockReturnValue(true),
+        newContext: vi.fn().mockResolvedValue(mockContext),
+        close: vi.fn().mockResolvedValue(undefined),
+      };
+      vi.mocked(chromium.launch)
+        .mockResolvedValueOnce(mockBrowser as unknown as Browser)
+        .mockResolvedValueOnce(replacementBrowser as unknown as Browser);
+      const service = new PlaywrightBrowserService();
+
+      expect(await service.initialize()).toBe(mockBrowser);
+      mockBrowser.isConnected.mockReturnValue(false);
+
+      expect(await service.initialize()).toBe(replacementBrowser);
+      expect(chromium.launch).toHaveBeenCalledTimes(2);
+      expect(service.isConnected()).toBe(true);
+    });
+
     it('initialize() が並行して複数回呼ばれた場合でも重複起動せず単一の Browser インスタンスを返す', async () => {
       const service = new PlaywrightBrowserService();
       const [b1, b2, b3] = await Promise.all([
@@ -303,6 +322,15 @@ describe('PlaywrightBrowserService', () => {
       const service = new PlaywrightBrowserService();
       await expect(service.closeContext(externalContext)).resolves.not.toThrow();
       expect(externalContext.close).toHaveBeenCalledTimes(1);
+    });
+
+    it('Service 所有 Context を外部から直接閉じると管理対象への参照が残る', async () => {
+      const service = new PlaywrightBrowserService();
+      const context = await service.createContext();
+
+      await context.close();
+
+      expect(service.getContexts()).toContain(context);
     });
   });
 

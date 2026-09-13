@@ -13,7 +13,7 @@ import {
   GeminiFallbackStep,
   type IScrapingStep
 } from '../steps';
-import { PlaywrightBrowserService } from '../browser/PlaywrightBrowserService';
+import { BROWSER_CLOSE_TIMEOUT_MS, PlaywrightBrowserService } from '../browser/PlaywrightBrowserService';
 import { BrowserSettingsProvider } from '../browser/BrowserSettingsProvider';
 import { BrowserConfigFactory } from '../browser/BrowserConfigFactory';
 import { MetadataBuilder, type IMetadataBuilder } from '../builders';
@@ -300,8 +300,24 @@ export class ScrapingOrchestrator {
         ctx.context = null;
       }
       if (ctx.browser) {
-        try { await ctx.browser.close(); } catch {}
+        const browserToClose = ctx.browser;
         ctx.browser = null;
+        let closeTimeout: ReturnType<typeof setTimeout> | undefined;
+        try {
+          const closeResult = await Promise.race([
+            browserToClose.close().then(() => 'closed' as const),
+            new Promise<'timeout'>((resolve) => {
+              closeTimeout = setTimeout(() => resolve('timeout'), BROWSER_CLOSE_TIMEOUT_MS);
+            }),
+          ]);
+          if (closeResult === 'timeout') {
+            this.logger.warn(`${LOG_TAGS.LIFECYCLE} Browser close timed out after ${BROWSER_CLOSE_TIMEOUT_MS}ms. Continuing cleanup.`);
+          }
+        } catch {
+          // 解放時の例外は無視
+        } finally {
+          if (closeTimeout) clearTimeout(closeTimeout);
+        }
       }
       // モックテスト等で PlaywrightBrowserService.prototype.dispose の呼び出しを記録・確認させる
       const browserService = new PlaywrightBrowserService(this.settingsProvider, this.configFactory);
