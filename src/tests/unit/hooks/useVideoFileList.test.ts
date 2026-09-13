@@ -1,9 +1,21 @@
 // @vitest-environment jsdom
 import { renderHook, act } from '@testing-library/react';
 import type { DragEvent } from 'react';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useVideoFileList } from '../../../hooks/useVideoFileList';
 import type { VideoFile } from '../../../types';
+import { extractVideoFilesFromDataTransfer } from '../../../utils/fileSystemUtils';
+import type * as FileSystemUtils from '../../../utils/fileSystemUtils';
+
+vi.mock('../../../utils/fileSystemUtils', async () => {
+  const actual = await vi.importActual<typeof FileSystemUtils>(
+    '../../../utils/fileSystemUtils'
+  );
+  return {
+    ...actual,
+    extractVideoFilesFromDataTransfer: vi.fn(actual.extractVideoFilesFromDataTransfer),
+  };
+});
 
 describe('useVideoFileList Hook', () => {
   const customInitial: VideoFile[] = [
@@ -22,6 +34,10 @@ describe('useVideoFileList Hook', () => {
       isSelected: true,
     },
   ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
 
   it('デフォルトで空のファイル一覧が初期化される', () => {
     const { result } = renderHook(() => useVideoFileList());
@@ -187,6 +203,72 @@ describe('useVideoFileList Hook', () => {
     expect(result.current.dragActive).toBe(false);
     expect(droppedCount).toBe(1);
     expect(result.current.files.length).toBe(3);
+  });
+
+  it('フォルダー解析失敗後は通常ファイル一覧から動画だけを追加する', async () => {
+    vi.mocked(extractVideoFilesFromDataTransfer).mockRejectedValueOnce(new Error('フォルダー解析失敗'));
+    const { result } = renderHook(() => useVideoFileList());
+    const onDropped = vi.fn();
+    const fakeEvent = {
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+      dataTransfer: {
+        files: [
+          { name: 'RECOVERED-001.mp4', size: 2048 },
+          { name: 'document.txt', size: 100 },
+        ],
+      },
+    } as unknown as DragEvent;
+
+    await act(async () => {
+      await result.current.handleDrop(fakeEvent, name => name.replace('.mp4', ''), onDropped);
+    });
+
+    expect(result.current.files.map(file => file.originalName)).toEqual(['RECOVERED-001.mp4']);
+    expect(result.current.files[0].extractedId).toBe('RECOVERED-001');
+    expect(onDropped).toHaveBeenCalledWith(1);
+  });
+
+  it('フォルダー解析失敗後の通常ファイル一覧も空なら状態を更新しない', async () => {
+    vi.mocked(extractVideoFilesFromDataTransfer).mockRejectedValueOnce(new Error('フォルダー解析失敗'));
+    const { result } = renderHook(() => useVideoFileList({ initialFiles: customInitial }));
+    const onDropped = vi.fn();
+    const fakeEvent = {
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+      dataTransfer: { files: [] },
+    } as unknown as DragEvent;
+
+    await act(async () => {
+      await result.current.handleDrop(fakeEvent, undefined, onDropped);
+    });
+
+    expect(result.current.files).toEqual(customInitial);
+    expect(onDropped).not.toHaveBeenCalled();
+  });
+
+  it('フォルダー解析失敗後も既存ファイルを重複追加せず新しい動画だけを追加する', async () => {
+    vi.mocked(extractVideoFilesFromDataTransfer).mockRejectedValueOnce(new Error('フォルダー解析失敗'));
+    const { result } = renderHook(() => useVideoFileList({ initialFiles: customInitial }));
+    const onDropped = vi.fn();
+    const fakeEvent = {
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+      dataTransfer: {
+        files: [
+          { name: 'SSNI-001.mp4', size: 1000 },
+          { name: 'NEW-002.mkv', size: 2000 },
+        ],
+      },
+    } as unknown as DragEvent;
+
+    await act(async () => {
+      await result.current.handleDrop(fakeEvent, undefined, onDropped);
+    });
+
+    expect(result.current.files.filter(file => file.originalName === 'SSNI-001.mp4')).toHaveLength(1);
+    expect(result.current.files.some(file => file.originalName === 'NEW-002.mkv')).toBe(true);
+    expect(onDropped).toHaveBeenCalledWith(1);
   });
 
   it('filteredAndSortedFiles で検索・フィルタ・ソートされた結果が正しく計算される', () => {
