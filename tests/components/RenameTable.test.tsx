@@ -27,6 +27,31 @@ describe('RenameTable Component', () => {
     },
   ];
 
+  const createProps = (files: VideoFile[], overrides: Partial<React.ComponentProps<typeof RenameTable>> = {}) => ({
+    files,
+    selectedFileId: null,
+    setSelectedFileId: vi.fn(),
+    fileSearchQuery: '',
+    setFileSearchQuery: vi.fn(),
+    fileStatusFilter: 'All',
+    setFileStatusFilter: vi.fn(),
+    fileSortBy: 'originalName',
+    setFileSortBy: vi.fn(),
+    fileSortOrder: 'asc' as const,
+    setFileSortOrder: vi.fn(),
+    dragActive: false,
+    handleDragOver: vi.fn(),
+    handleDragLeave: vi.fn(),
+    handleDrop: vi.fn(),
+    handleSelectAll: vi.fn(),
+    handleSelectFile: vi.fn(),
+    handleSingleRefreshMetadata: vi.fn(),
+    handleSingleRenameFile: vi.fn(),
+    getFormattedPreviewName: (file: VideoFile) => `renamed-${file.originalName}`,
+    openTroubleshootingModal: vi.fn(),
+    ...overrides,
+  });
+
   it('renders table headers and file rows correctly', () => {
     const setSelectedFileId = vi.fn();
     const setFileSearchQuery = vi.fn();
@@ -95,5 +120,70 @@ describe('RenameTable Component', () => {
 
     fireEvent.click(allButton);
     expect(setFileStatusFilter).toHaveBeenCalledWith('All');
+  });
+
+  it('商品IDまたはタイトルに一致するファイルだけを大文字小文字を区別せず表示する', () => {
+    const files: VideoFile[] = [
+      { id: 'id-match', originalName: 'first.mp4', extractedId: 'ABC-123', status: 'completed' },
+      {
+        id: 'title-match',
+        originalName: 'second.mp4',
+        extractedId: 'XYZ-456',
+        status: 'completed',
+        metadata: { productId: 'XYZ-456', title: 'Special Movie' },
+      },
+      { id: 'unmatched', originalName: 'third.mp4', extractedId: 'ZZZ-999', status: 'completed' },
+    ];
+    const { rerender } = render(<RenameTable {...createProps(files, { fileSearchQuery: 'abc-123' })} />);
+
+    expect(screen.getAllByText('first.mp4').length).toBeGreaterThan(0);
+    expect(screen.queryByText('second.mp4')).toBeNull();
+    expect(screen.queryByText('third.mp4')).toBeNull();
+
+    rerender(<RenameTable {...createProps(files, { fileSearchQuery: 'SPECIAL movie' })} />);
+
+    expect(screen.queryByText('first.mp4')).toBeNull();
+    expect(screen.getAllByText('second.mp4').length).toBeGreaterThan(0);
+    expect(screen.queryByText('third.mp4')).toBeNull();
+  });
+
+  it('完了・未完了・すべての絞り込みに応じて表示対象を切り替える', () => {
+    const files: VideoFile[] = [
+      { id: 'completed', originalName: 'completed.mp4', status: 'completed' },
+      { id: 'pending', originalName: 'pending.mp4', status: 'pending' },
+      { id: 'error', originalName: 'error.mp4', status: 'error' },
+    ];
+    const { rerender } = render(<RenameTable {...createProps(files, { fileStatusFilter: 'completed' })} />);
+
+    expect(screen.getAllByText('completed.mp4').length).toBeGreaterThan(0);
+    expect(screen.queryByText('pending.mp4')).toBeNull();
+    expect(screen.queryByText('error.mp4')).toBeNull();
+
+    rerender(<RenameTable {...createProps(files, { fileStatusFilter: 'incomplete' })} />);
+    expect(screen.queryByText('completed.mp4')).toBeNull();
+    expect(screen.getAllByText('pending.mp4').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('error.mp4').length).toBeGreaterThan(0);
+
+    rerender(<RenameTable {...createProps(files, { fileStatusFilter: 'All' })} />);
+    expect(screen.getAllByText('completed.mp4').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('pending.mp4').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('error.mp4').length).toBeGreaterThan(0);
+  });
+
+  it('50件を超える場合は表示範囲内だけを描画し、表示中のファイルを選択できる', () => {
+    const files: VideoFile[] = Array.from({ length: 55 }, (_, index) => ({
+      id: `file-${index + 1}`,
+      originalName: `video-${String(index + 1).padStart(2, '0')}.mp4`,
+      status: 'completed' as const,
+    }));
+    const setSelectedFileId = vi.fn();
+    render(<RenameTable {...createProps(files, { setSelectedFileId })} />);
+
+    expect(screen.getAllByText('video-01.mp4').length).toBeGreaterThan(0);
+    expect(screen.queryByText('video-55.mp4')).toBeNull();
+
+    fireEvent.click(screen.getAllByText('video-01.mp4')[0]);
+    expect(setSelectedFileId).toHaveBeenCalledOnce();
+    expect(setSelectedFileId).toHaveBeenCalledWith('file-1');
   });
 });
