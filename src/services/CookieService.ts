@@ -18,7 +18,10 @@ export class CookieService {
     try {
       if (fs.existsSync(this.cookiesPath)) {
         const data = fs.readFileSync(this.cookiesPath, 'utf-8');
-        return JSON.parse(data) as Cookie[];
+        const parsed: unknown = JSON.parse(data);
+        if (Array.isArray(parsed)) {
+          return parsed as Cookie[];
+        }
       }
     } catch (e: unknown) {
       LoggingService.getInstance().warn('Failed to load cookies.json:', e instanceof Error ? e.message : String(e));
