@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DiagnosticsStorageService } from '../src/services/DiagnosticsStorageService';
 import fs from 'fs';
+import type { Page } from 'playwright';
+import type { ILogger } from '../src/services';
+import type { IMetricsCollector } from '../src/metrics/IMetricsCollector';
 
 vi.mock('fs', async () => {
   const actual = await vi.importActual<typeof fs>('fs');
@@ -20,10 +23,25 @@ vi.mock('fs', async () => {
 
 describe('DiagnosticsStorageService', () => {
   let service: DiagnosticsStorageService;
+  let logger: ILogger;
+  let metricsCollector: IMetricsCollector;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    service = new DiagnosticsStorageService();
+    vi.mocked(fs.existsSync).mockReturnValue(false);
+    vi.mocked(fs.mkdirSync).mockImplementation(() => undefined);
+    vi.mocked(fs.writeFileSync).mockImplementation(() => undefined);
+    logger = {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      debug: vi.fn(),
+    } as unknown as ILogger;
+    metricsCollector = {
+      recordCdpLogSaved: vi.fn(),
+      recordHtmlSaved: vi.fn(),
+    } as unknown as IMetricsCollector;
+    service = new DiagnosticsStorageService(logger, metricsCollector);
   });
 
   it('ensureDiagnosticsDir が必要なディレクトリを作成する', () => {
@@ -86,6 +104,57 @@ describe('DiagnosticsStorageService', () => {
       expect.stringContaining('page-123-page-content-test.html'),
       'page content',
       'utf-8'
+    );
+  });
+
+  it('診断ファイルの書き込み失敗を記録し、呼び出し元へ例外を出さない', () => {
+    vi.mocked(fs.writeFileSync).mockImplementation(() => {
+      throw new Error('診断ファイルを書き込めません');
+    });
+
+    expect(() => service.saveCDPLog('failed', [{ event: 'request' }])).not.toThrow();
+
+    expect(logger.error).toHaveBeenCalledWith('CDP saving failed:', '診断ファイルを書き込めません');
+    expect(metricsCollector.recordCdpLogSaved).not.toHaveBeenCalled();
+  });
+
+  it('HTML取得失敗を記録し、保存データを作らず安全に終了する', async () => {
+    const page = {
+      evaluate: vi.fn().mockResolvedValue('<html></html>'),
+      content: vi.fn().mockRejectedValue(new Error('HTMLを取得できません')),
+    } as unknown as Page;
+
+    await expect(service.runAndSaveHTML(page, 'failed', 'ABC-123')).resolves.toBeUndefined();
+
+    expect(logger.error).toHaveBeenCalledWith('HTML collection failed:', 'HTMLを取得できません');
+    expect(fs.writeFileSync).not.toHaveBeenCalled();
+    expect(metricsCollector.recordHtmlSaved).not.toHaveBeenCalled();
+  });
+
+  it('比較対象が不足している場合は比較ファイルを作らず安全に終了する', () => {
+    const page403 = { status: 403, title: 'Blocked', htmlLen: 100, cookiesCount: 2 };
+    const page200 = { status: 200, title: 'Success', htmlLen: 500, cookiesCount: 5 };
+
+    expect(() => {
+      service.savePageComparison(page403, null);
+      service.savePageComparison(null, page200);
+      service.savePageComparison(null, null);
+    }).not.toThrow();
+
+    expect(fs.writeFileSync).not.toHaveBeenCalled();
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it('診断ディレクトリ作成失敗を記録し、呼び出し元へ例外を出さない', () => {
+    vi.mocked(fs.mkdirSync).mockImplementation(() => {
+      throw new Error('診断ディレクトリを作成できません');
+    });
+
+    expect(() => service.ensureDiagnosticsDir()).not.toThrow();
+
+    expect(logger.error).toHaveBeenCalledWith(
+      'Failed to ensure diagnostics directories:',
+      '診断ディレクトリを作成できません'
     );
   });
 });
