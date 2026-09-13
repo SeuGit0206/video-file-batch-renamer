@@ -8,7 +8,7 @@ import type { ScrapedMetadata, ScraperErrorResponse, ScraperCustomError } from '
  * unknown 値が null でない Record<string, unknown> オブジェクトか判定する型ガード
  */
 export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /**
