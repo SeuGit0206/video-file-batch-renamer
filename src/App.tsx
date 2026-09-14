@@ -25,11 +25,10 @@ import { RuleEditorModal } from './components/rule/RuleEditorModal';
 import { RenameExecutionModal } from './components/rename/RenameExecutionModal';
 import { AppInfoModal } from './components/AppInfoModal';
 import { MetadataEditModal } from './components/MetadataEditModal';
-import type { ScrapedMetadata, ScraperDebugInfo } from './types/scraper';
+import type { ScrapedMetadata } from './types/scraper';
 import { ErrorNotificationBanner } from './components/ErrorNotificationBanner';
 import { AppErrorClassifier } from './errors/AppErrorClassifier';
-import { AppErrorCode, type AppErrorDetails } from './errors/AppErrorCodes';
-import { ScraperError } from './errors/ScraperError';
+import type { AppErrorDetails } from './errors/AppErrorCodes';
 import { container } from './composition/container';
 import type { ExportData, ExportTarget } from './types/export';
 import type { ImportResult, ImportTarget } from './types/import';
@@ -46,6 +45,7 @@ import {
   buildExportData,
   type AppDataTransferSettings,
 } from './services/AppDataTransferService';
+import { parseMetadataApiResponse } from './services/MetadataApiResponseParser';
 
 export default function App() {
   // Rule Engine Services (Container経由)
@@ -526,11 +526,14 @@ export default function App() {
 
           if (useCache && metadataCache[id]) {
             addLog('Info', 'LiteDbCacheAdapter', `キャッシュヒット: [${id}]`);
+            const cachedMetadata = metadataCache[id];
             setFiles(prev => prev.map(f => f.id === file.id ? {
               ...f,
               status: 'completed',
-              metadata: metadataCache[id],
-              detailUrl: `https://missav.ai/ja/${id.toLowerCase()}`
+              metadata: cachedMetadata,
+              detailUrl: typeof cachedMetadata.detailUrl === 'string' && cachedMetadata.detailUrl
+                ? cachedMetadata.detailUrl
+                : `https://missav.ai/ja/${id.toLowerCase()}`
             } : f));
           } else {
             try {
@@ -538,34 +541,7 @@ export default function App() {
               addLog('Info', 'PlaywrightBrowserService', `MissAV URLへ接続中: https://missav.ai/ja/${id.toLowerCase()}`);
 
               const res = await fetch(`/api/metadata?id=${encodeURIComponent(id)}`, { signal });
-              let data: { error?: string; errorCode?: string; data?: ScrapedMetadata; debug?: ScraperDebugInfo } | null = null;
-              try {
-                data = await res.json();
-              } catch {
-                // non-json response
-              }
-
-              if (!res.ok) {
-                const errorMsg = data?.error || `HTTP ${res.status}: メタデータ取得失敗`;
-                const code = data?.errorCode as AppErrorCode | undefined;
-                throw new ScraperError(errorMsg, {
-                  status: res.status,
-                  code: code || (res.status === 404 ? AppErrorCode.METADATA_NOT_FOUND : undefined),
-                  debug: data?.debug,
-                });
-              }
-
-              if (data?.error || !data?.data) {
-                const errorMsg = data?.error || 'メタデータが見つかりませんでした';
-                const code = data?.errorCode as AppErrorCode | undefined;
-                throw new ScraperError(errorMsg, {
-                  status: 404,
-                  code: code || AppErrorCode.METADATA_NOT_FOUND,
-                  debug: data?.debug,
-                });
-              }
-
-              const meta = data.data;
+              const meta = await parseMetadataApiResponse(res);
               updateMetadataCache(id, meta);
 
               setFiles(prev => prev.map(f => f.id === file.id ? {
@@ -634,10 +610,7 @@ export default function App() {
 
     try {
       const res = await fetch(`/api/metadata?id=${encodeURIComponent(id)}`);
-      const data = await res.json();
-      if (!res.ok || data?.error || !data?.data) throw new Error(data?.error || '取得失敗');
-
-      const meta = data.data;
+      const meta = await parseMetadataApiResponse(res);
       updateMetadataCache(id, meta);
 
       setFiles(prev => prev.map(f => f.id === file.id ? {
@@ -649,11 +622,12 @@ export default function App() {
         actress: meta.actress || f.actress,
         releaseDate: meta.releaseDate || f.releaseDate,
         series: meta.series || f.series,
-        detailUrl: meta.url || `https://missav.ai/ja/${id.toLowerCase()}`
+        detailUrl: meta.detailUrl || `https://missav.ai/ja/${id.toLowerCase()}`
       } : f));
       addLog('Info', 'ScrapingOrchestrator', `個別取得成功: [${id}] - ${meta.title}`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
+      setCurrentErrorDetails(AppErrorClassifier.classify(err));
       setFiles(prev => prev.map(f => f.id === file.id ? {
         ...f,
         status: 'error',

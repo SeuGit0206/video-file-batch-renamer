@@ -74,6 +74,32 @@ describe('メタデータ取得・中断の画面操作', () => {
     expect(JSON.parse(localStorage.getItem(cacheKey)!)).toEqual({ 'ABC-123': metadata });
   });
 
+  it('一括取得と個別再取得でAPIのdetailUrlを画面とキャッシュへ反映する', async () => {
+    const bulkDetailUrl = 'https://example.test/product/ABC-123';
+    const refreshedDetailUrl = 'https://example.test/product/ABC-123-refreshed';
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ data: { title: '一括取得結果', detailUrl: bulkDetailUrl } }))
+      .mockResolvedValueOnce(response({ data: { title: '個別再取得結果', detailUrl: refreshedDetailUrl } }));
+    stubMetadataFetch(fetchMock);
+    render(<App />);
+    addFiles('ABC-123.mp4');
+
+    startFetch();
+    await screen.findByText('メタデータ同期が完了しました (1 / 1 件)');
+    expect(rowFor('ABC-123.mp4').getByRole('link', { name: bulkDetailUrl })).toBeTruthy();
+    expect(fetchMock.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ signal: expect.any(AbortSignal) }));
+
+    fireEvent.click(rowFor('ABC-123.mp4').getByTitle('個別メタデータ再取得'));
+    await waitFor(() => expect(rowFor('ABC-123.mp4').getByText(/個別再取得結果/)).toBeTruthy());
+
+    expect(rowFor('ABC-123.mp4').getByRole('link', { name: refreshedDetailUrl })).toBeTruthy();
+    expect(rowFor('ABC-123.mp4').queryByRole('link', { name: 'https://missav.ai/ja/abc-123' })).toBeNull();
+    expect(fetchMock.mock.calls[1]?.[1]).toBeUndefined();
+    expect(JSON.parse(localStorage.getItem(cacheKey)!)).toEqual({
+      'ABC-123': { title: '個別再取得結果', detailUrl: refreshedDetailUrl },
+    });
+  });
+
   it('保存済みのメタデータを使う場合は通信せず完了する', async () => {
     localStorage.setItem(cacheKey, JSON.stringify({ 'ABC-123': { title: '保存済みタイトル' } }));
     const fetchMock = vi.fn();
@@ -83,6 +109,25 @@ describe('メタデータ取得・中断の画面操作', () => {
     startFetch();
     expect(await screen.findByText('メタデータ同期が完了しました (1 / 1 件)')).toBeTruthy();
     expect(rowFor('ABC-123.mp4').getByText('READY')).toBeTruthy();
+    expect(rowFor('ABC-123.mp4').getByRole('link', { name: 'https://missav.ai/ja/abc-123' })).toBeTruthy();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('保存済みのdetailUrlをキャッシュヒット時も画面へ反映する', async () => {
+    const cachedDetailUrl = 'https://example.test/product/ABC-123-cached';
+    localStorage.setItem(cacheKey, JSON.stringify({
+      'ABC-123': { title: '保存済みタイトル', detailUrl: cachedDetailUrl },
+    }));
+    const fetchMock = vi.fn();
+    stubMetadataFetch(fetchMock);
+    render(<App />);
+    addFiles('ABC-123.mp4');
+
+    startFetch();
+
+    expect(await screen.findByText('メタデータ同期が完了しました (1 / 1 件)')).toBeTruthy();
+    expect(rowFor('ABC-123.mp4').getByRole('link', { name: cachedDetailUrl })).toBeTruthy();
+    expect(rowFor('ABC-123.mp4').queryByRole('link', { name: 'https://missav.ai/ja/abc-123' })).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -123,6 +168,7 @@ describe('メタデータ取得・中断の画面操作', () => {
 
     fireEvent.click(rowFor('ABC-123.mp4').getByTitle('個別メタデータ再取得'));
     await waitFor(() => expect(rowFor('ABC-123.mp4').getByRole('button', { name: /CONFLICT/ })).toBeTruthy());
+    expect(screen.getByRole('alert')).toBeTruthy();
     expect(rowFor('ABC-123.mp4').queryByText('FETCHING')).toBeNull();
     expect(rowFor('ABC-123.mp4').getByText(/保存済みタイトル/).textContent).toBe(preview);
     expect(JSON.parse(localStorage.getItem(cacheKey)!)).toEqual({ 'ABC-123': oldMetadata });
