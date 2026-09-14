@@ -4,7 +4,7 @@ import { GoogleGenAI } from '@google/genai';
 import type { Browser, BrowserContext, Cookie, Request as PWRequest, Response as PWResponse, ConsoleMessage } from 'playwright';
 import type { IScrapingStep } from './IScrapingStep';
 import type { ScrapingContext } from './ScrapingContext';
-import { PlaywrightBrowserService } from '../browser/PlaywrightBrowserService';
+import { BROWSER_CLOSE_TIMEOUT_MS, PlaywrightBrowserService } from '../browser/PlaywrightBrowserService';
 import type { BrowserSettingsProvider } from '../browser/BrowserSettingsProvider';
 import type { BrowserConfigFactory } from '../browser/BrowserConfigFactory';
 import type { IdentifiedPage } from '../browser/types';
@@ -55,14 +55,15 @@ export class GeminiFallbackStep implements IScrapingStep {
     if (isInvalidDetailPage) {
       const searchFallbackResult = await this.handleSearchFallback(ctx);
 
+      ctx.page = searchFallbackResult.page;
+      ctx.context = searchFallbackResult.context;
+      ctx.browser = searchFallbackResult.browser;
+
       if (searchFallbackResult.status === 'NotFound' && searchFallbackResult.notFoundResponse) {
         ctx.earlyReturnResult = searchFallbackResult.notFoundResponse;
         return;
       }
 
-      ctx.page = searchFallbackResult.page;
-      ctx.context = searchFallbackResult.context;
-      ctx.browser = searchFallbackResult.browser;
       ctx.docInfo = searchFallbackResult.docInfo;
       ctx.status = searchFallbackResult.statusNum;
       ctx.finalUrl = searchFallbackResult.finalUrl;
@@ -151,10 +152,48 @@ export class GeminiFallbackStep implements IScrapingStep {
 
     if (page || context || browser) {
       logSearchFlow("[Search Fallback] Closing existing browser/context to start a clean diagnostic run for search...");
-      try { await browserService.dispose(); } catch {}
+      const oldPage = page;
+      const oldContext = context;
+      const oldBrowser = browser;
       page = null;
       context = null;
       browser = null;
+      ctx.page = null;
+      ctx.context = null;
+      ctx.browser = null;
+
+      if (oldPage) {
+        try {
+          await oldPage.close();
+        } catch (error: unknown) {
+          this.logger.warn(`[Search Fallback] Failed to close existing page: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+      if (oldContext) {
+        try {
+          await oldContext.close();
+        } catch (error: unknown) {
+          this.logger.warn(`[Search Fallback] Failed to close existing context: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+      if (oldBrowser) {
+        let closeTimeout: ReturnType<typeof setTimeout> | undefined;
+        try {
+          const closeResult = await Promise.race([
+            oldBrowser.close().then(() => 'closed' as const),
+            new Promise<'timeout'>((resolve) => {
+              closeTimeout = setTimeout(() => resolve('timeout'), BROWSER_CLOSE_TIMEOUT_MS);
+            }),
+          ]);
+          if (closeResult === 'timeout') {
+            this.logger.warn(`[Search Fallback] Existing browser close timed out after ${BROWSER_CLOSE_TIMEOUT_MS}ms. Continuing fallback.`);
+          }
+        } catch (error: unknown) {
+          this.logger.warn(`[Search Fallback] Failed to close existing browser: ${error instanceof Error ? error.message : String(error)}`);
+        } finally {
+          if (closeTimeout) clearTimeout(closeTimeout);
+        }
+      }
     }
 
     logSearchFlow("[Search Fallback] Recreating browser, context, and page for search fallback...");

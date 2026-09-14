@@ -6,6 +6,7 @@ import { MetadataBuilder } from '../../src/builders/MetadataBuilder';
 import type { BrowserConfigFactory } from '../../src/browser/BrowserConfigFactory';
 import type { BrowserSettingsProvider } from '../../src/browser/BrowserSettingsProvider';
 import type { PlaywrightBrowserService } from '../../src/browser/PlaywrightBrowserService';
+import { BROWSER_CLOSE_TIMEOUT_MS } from '../../src/browser/PlaywrightBrowserService';
 import type { IdentifiedPage } from '../../src/browser/types';
 import type { ICdpDiagnosticsService, IDiagnosticsStorageService, ILogger } from '../../src/services';
 
@@ -102,7 +103,7 @@ describe('GeminiFallbackStep search fallback failures', () => {
       on: vi.fn(),
       off: vi.fn(),
       goto: vi.fn().mockResolvedValue({ status: vi.fn().mockReturnValue(200) }),
-      content: vi.fn().mockResolvedValue('<html><body>検索結果</body></html>'),
+      content: vi.fn().mockResolvedValue('<html><body><video></video></body></html>'),
       title: vi.fn().mockResolvedValue('検索結果'),
       url: vi.fn().mockReturnValue('https://missav.ai/ja/abc-123'),
       evaluate,
@@ -122,7 +123,7 @@ describe('GeminiFallbackStep search fallback failures', () => {
       dispose: vi.fn().mockResolvedValue(undefined),
     } as unknown as PlaywrightBrowserService;
 
-    return { service, page };
+    return { service, page, context, browser };
   }
 
   it('ブラウザ再作成に失敗しても例外終了せずNotFoundを返す', async () => {
@@ -213,5 +214,117 @@ describe('GeminiFallbackStep search fallback failures', () => {
         ]),
       }),
     });
+  });
+
+  it('既存資源を終了してから検索用Browserへ置き換える', async () => {
+    const ctx = createInvalidContext();
+    const oldPageClose = vi.fn().mockResolvedValue(undefined);
+    const oldPage = { close: oldPageClose } as unknown as IdentifiedPage;
+    const oldContext = { close: vi.fn().mockResolvedValue(undefined) };
+    const oldBrowser = { close: vi.fn().mockResolvedValue(undefined) };
+    const oldService = {
+      initialize: vi.fn().mockResolvedValue(oldBrowser),
+      createContext: vi.fn().mockResolvedValue(oldContext),
+      createPage: vi.fn().mockResolvedValue(oldPage),
+      dispose: vi.fn().mockImplementation(() => oldBrowser.close()),
+    } as unknown as PlaywrightBrowserService;
+    ctx.page = oldPage;
+    ctx.context = oldContext as unknown as typeof ctx.context;
+    ctx.browser = oldBrowser as unknown as typeof ctx.browser;
+
+    const matchedUrl = 'https://missav.ai/ja/abc-123';
+    const links = [{
+      href: matchedUrl,
+      text: 'ABC-123',
+      className: '',
+      parentClass: '',
+      grandParentClass: '',
+    }];
+    const validDocInfo = {
+      title: 'ABC-123 Sample',
+      h1: 'ABC-123 Sample',
+      titleDom: 'ABC-123 Sample',
+      canonical: matchedUrl,
+      description: 'ABC-123 Sample',
+      actresses: '',
+      maker: '',
+    };
+    const { service, page, context, browser } = createSearchBrowser(links, validDocInfo);
+
+    await expect(createStep(service).execute(ctx)).resolves.toBeUndefined();
+
+    expect(service).not.toBe(oldService);
+    expect(service.dispose).not.toHaveBeenCalled();
+    expect(oldService.dispose).not.toHaveBeenCalled();
+    expect(oldPage.close).toHaveBeenCalledTimes(1);
+    expect(oldContext.close).toHaveBeenCalledTimes(1);
+    expect(oldBrowser.close).toHaveBeenCalledTimes(1);
+    expect(oldPageClose.mock.invocationCallOrder[0]).toBeLessThan(oldContext.close.mock.invocationCallOrder[0]);
+    expect(oldContext.close.mock.invocationCallOrder[0]).toBeLessThan(oldBrowser.close.mock.invocationCallOrder[0]);
+    expect(service.initialize).toHaveBeenCalledTimes(1);
+    expect(service.createContext).toHaveBeenCalledTimes(1);
+    expect(service.createPage).toHaveBeenCalledTimes(1);
+    expect(ctx.page).toBe(page);
+    expect(ctx.context).toBe(context);
+    expect(ctx.browser).toBe(browser);
+    expect(ctx.browser).not.toBe(oldBrowser);
+  });
+
+  it('既存資源の終了が失敗しても新しい資源で検索フォールバックを続行する', async () => {
+    const ctx = createInvalidContext();
+    const oldPage = { close: vi.fn().mockRejectedValue(new Error('page close failed')) } as unknown as IdentifiedPage;
+    const oldContext = { close: vi.fn().mockRejectedValue(new Error('context close failed')) };
+    const oldBrowser = { close: vi.fn().mockRejectedValue(new Error('browser close failed')) };
+    ctx.page = oldPage;
+    ctx.context = oldContext as unknown as typeof ctx.context;
+    ctx.browser = oldBrowser as unknown as typeof ctx.browser;
+
+    const matchedUrl = 'https://missav.ai/ja/abc-123';
+    const links = [{ href: matchedUrl, text: 'ABC-123', className: '', parentClass: '', grandParentClass: '' }];
+    const validDocInfo = {
+      title: 'ABC-123 Sample', h1: 'ABC-123 Sample', titleDom: 'ABC-123 Sample',
+      canonical: matchedUrl, description: 'ABC-123 Sample', actresses: '', maker: '',
+    };
+    const { service, page, context, browser } = createSearchBrowser(links, validDocInfo);
+
+    await expect(createStep(service).execute(ctx)).resolves.toBeUndefined();
+
+    expect(oldPage.close).toHaveBeenCalledTimes(1);
+    expect(oldContext.close).toHaveBeenCalledTimes(1);
+    expect(oldBrowser.close).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('page close failed'));
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('context close failed'));
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('browser close failed'));
+    expect(ctx.page).toBe(page);
+    expect(ctx.context).toBe(context);
+    expect(ctx.browser).toBe(browser);
+  });
+
+  it('既存Browserのcloseが停止してもtimeout後に新しい資源へ置き換える', async () => {
+    vi.useFakeTimers();
+    try {
+      const ctx = createInvalidContext();
+      const oldBrowser = { close: vi.fn().mockReturnValue(new Promise<void>(() => {})) };
+      ctx.browser = oldBrowser as unknown as typeof ctx.browser;
+
+      const matchedUrl = 'https://missav.ai/ja/abc-123';
+      const links = [{ href: matchedUrl, text: 'ABC-123', className: '', parentClass: '', grandParentClass: '' }];
+      const validDocInfo = {
+        title: 'ABC-123 Sample', h1: 'ABC-123 Sample', titleDom: 'ABC-123 Sample',
+        canonical: matchedUrl, description: 'ABC-123 Sample', actresses: '', maker: '',
+      };
+      const { service, browser } = createSearchBrowser(links, validDocInfo);
+      const execution = createStep(service).execute(ctx);
+      await Promise.resolve();
+
+      expect(service.initialize).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(BROWSER_CLOSE_TIMEOUT_MS);
+      await expect(execution).resolves.toBeUndefined();
+
+      expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining(`timed out after ${BROWSER_CLOSE_TIMEOUT_MS}ms`));
+      expect(ctx.browser).toBe(browser);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
