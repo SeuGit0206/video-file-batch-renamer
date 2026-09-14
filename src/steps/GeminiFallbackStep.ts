@@ -5,6 +5,7 @@ import type { Browser, BrowserContext, Cookie, Request as PWRequest, Response as
 import type { IScrapingStep } from './IScrapingStep';
 import type { ScrapingContext } from './ScrapingContext';
 import { BROWSER_CLOSE_TIMEOUT_MS, PlaywrightBrowserService } from '../browser/PlaywrightBrowserService';
+import { closeWithTimeout, type CloseResult } from '../browser/closeWithTimeout';
 import type { BrowserSettingsProvider } from '../browser/BrowserSettingsProvider';
 import type { BrowserConfigFactory } from '../browser/BrowserConfigFactory';
 import type { IdentifiedPage } from '../browser/types';
@@ -162,38 +163,9 @@ export class GeminiFallbackStep implements IScrapingStep {
       ctx.context = null;
       ctx.browser = null;
 
-      if (oldPage) {
-        try {
-          await oldPage.close();
-        } catch (error: unknown) {
-          this.logger.warn(`[Search Fallback] Failed to close existing page: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      }
-      if (oldContext) {
-        try {
-          await oldContext.close();
-        } catch (error: unknown) {
-          this.logger.warn(`[Search Fallback] Failed to close existing context: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      }
-      if (oldBrowser) {
-        let closeTimeout: ReturnType<typeof setTimeout> | undefined;
-        try {
-          const closeResult = await Promise.race([
-            oldBrowser.close().then(() => 'closed' as const),
-            new Promise<'timeout'>((resolve) => {
-              closeTimeout = setTimeout(() => resolve('timeout'), BROWSER_CLOSE_TIMEOUT_MS);
-            }),
-          ]);
-          if (closeResult === 'timeout') {
-            this.logger.warn(`[Search Fallback] Existing browser close timed out after ${BROWSER_CLOSE_TIMEOUT_MS}ms. Continuing fallback.`);
-          }
-        } catch (error: unknown) {
-          this.logger.warn(`[Search Fallback] Failed to close existing browser: ${error instanceof Error ? error.message : String(error)}`);
-        } finally {
-          if (closeTimeout) clearTimeout(closeTimeout);
-        }
-      }
+      if (oldPage) this.logCloseResult('page', await closeWithTimeout(() => oldPage.close()));
+      if (oldContext) this.logCloseResult('context', await closeWithTimeout(() => oldContext.close()));
+      if (oldBrowser) this.logCloseResult('browser', await closeWithTimeout(() => oldBrowser.close()));
     }
 
     logSearchFlow("[Search Fallback] Recreating browser, context, and page for search fallback...");
@@ -538,6 +510,15 @@ export class GeminiFallbackStep implements IScrapingStep {
     await context.addInitScript(() => {
       Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
     });
+  }
+
+  private logCloseResult(resource: string, result: CloseResult): void {
+    if (result.status === 'timedOut') {
+      this.logger.warn(`[Search Fallback] Existing ${resource} close timed out after ${BROWSER_CLOSE_TIMEOUT_MS}ms. Continuing fallback.`);
+    } else if (result.status === 'failed') {
+      const message = result.error instanceof Error ? result.error.message : String(result.error);
+      this.logger.warn(`[Search Fallback] Failed to close existing ${resource}: ${message}`);
+    }
   }
 
   private async capturePageState(page: IdentifiedPage, context: BrowserContext, status: number): Promise<Record<string, unknown> | null> {

@@ -14,6 +14,7 @@ import {
   type IScrapingStep
 } from '../steps';
 import { BROWSER_CLOSE_TIMEOUT_MS, PlaywrightBrowserService } from '../browser/PlaywrightBrowserService';
+import { closeWithTimeout, type CloseResult } from '../browser/closeWithTimeout';
 import { BrowserSettingsProvider } from '../browser/BrowserSettingsProvider';
 import { BrowserConfigFactory } from '../browser/BrowserConfigFactory';
 import { MetadataBuilder, type IMetadataBuilder } from '../builders';
@@ -292,32 +293,19 @@ export class ScrapingOrchestrator {
     this.logger.info(`${LOG_TAGS.LIFECYCLE} Entering finally block. Closing resources if open...`);
     try {
       if (ctx.page) {
-        try { await ctx.page.close(); } catch {}
+        const pageToClose = ctx.page;
         ctx.page = null;
+        this.logCloseResult('Page', await closeWithTimeout(() => pageToClose.close()));
       }
       if (ctx.context) {
-        try { await ctx.context.close(); } catch {}
+        const contextToClose = ctx.context;
         ctx.context = null;
+        this.logCloseResult('Context', await closeWithTimeout(() => contextToClose.close()));
       }
       if (ctx.browser) {
         const browserToClose = ctx.browser;
         ctx.browser = null;
-        let closeTimeout: ReturnType<typeof setTimeout> | undefined;
-        try {
-          const closeResult = await Promise.race([
-            browserToClose.close().then(() => 'closed' as const),
-            new Promise<'timeout'>((resolve) => {
-              closeTimeout = setTimeout(() => resolve('timeout'), BROWSER_CLOSE_TIMEOUT_MS);
-            }),
-          ]);
-          if (closeResult === 'timeout') {
-            this.logger.warn(`${LOG_TAGS.LIFECYCLE} Browser close timed out after ${BROWSER_CLOSE_TIMEOUT_MS}ms. Continuing cleanup.`);
-          }
-        } catch {
-          // 解放時の例外は無視
-        } finally {
-          if (closeTimeout) clearTimeout(closeTimeout);
-        }
+        this.logCloseResult('Browser', await closeWithTimeout(() => browserToClose.close()));
       }
       // モックテスト等で PlaywrightBrowserService.prototype.dispose の呼び出しを記録・確認させる
       const browserService = new PlaywrightBrowserService(this.settingsProvider, this.configFactory);
@@ -326,5 +314,14 @@ export class ScrapingOrchestrator {
       this.logger.info(`${LOG_TAGS.LIFECYCLE} Note on cleanup: ${e instanceof Error ? e.message : String(e)}`);
     }
     this.logger.info(`${LOG_TAGS.LIFECYCLE} finally block done.`);
+  }
+
+  private logCloseResult(resource: string, result: CloseResult): void {
+    if (result.status === 'timedOut') {
+      this.logger.warn(`${LOG_TAGS.LIFECYCLE} ${resource} close timed out after ${BROWSER_CLOSE_TIMEOUT_MS}ms. Continuing cleanup.`);
+    } else if (result.status === 'failed') {
+      const message = result.error instanceof Error ? result.error.message : String(result.error);
+      this.logger.warn(`${LOG_TAGS.LIFECYCLE} Failed to close ${resource.toLowerCase()}: ${message}`);
+    }
   }
 }

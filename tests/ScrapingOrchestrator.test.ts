@@ -227,6 +227,96 @@ describe('ScrapingOrchestrator', () => {
   });
 
   describe('エラー処理とリソース解放 (Resource Cleanup)', () => {
+    it('page.close() が未解決でもtimeout後に後続資源を閉じてcleanupを完了する', async () => {
+      vi.useFakeTimers();
+      let releasePageClose!: () => void;
+      const pageClosePending = new Promise<void>((resolve) => {
+        releasePageClose = resolve;
+      });
+      const hangingPage = { close: vi.fn().mockReturnValue(pageClosePending) } as unknown as Page;
+      const context = { close: vi.fn().mockResolvedValue(undefined) } as unknown as BrowserContext;
+      const browser = { close: vi.fn().mockResolvedValue(undefined) } as unknown as Browser;
+      const metadata = { productId: 'ABC-123', title: '取得済みタイトル' };
+      const step = {
+        execute: vi.fn().mockImplementation(async (ctx) => {
+          ctx.page = hangingPage;
+          ctx.context = context;
+          ctx.browser = browser;
+          ctx.metadata = metadata;
+        }),
+      };
+      const orchestrator = new ScrapingOrchestrator({ customSteps: [step] });
+      let completed = false;
+      try {
+        const fetchPromise = orchestrator.fetch('ABC-123').then((result) => {
+          completed = true;
+          return result;
+        });
+
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(hangingPage.close).toHaveBeenCalledTimes(1);
+        expect(completed).toBe(false);
+        expect(context.close).not.toHaveBeenCalled();
+        expect(browser.close).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(BROWSER_CLOSE_TIMEOUT_MS);
+
+        await expect(fetchPromise).resolves.toEqual(metadata);
+        expect(context.close).toHaveBeenCalledTimes(1);
+        expect(browser.close).toHaveBeenCalledTimes(1);
+        releasePageClose();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('context.close() が未解決でもtimeout後にBrowser終了へ進んでcleanupを完了する', async () => {
+      vi.useFakeTimers();
+      let releaseContextClose!: () => void;
+      const contextClosePending = new Promise<void>((resolve) => {
+        releaseContextClose = resolve;
+      });
+      const page = { close: vi.fn().mockResolvedValue(undefined) } as unknown as Page;
+      const hangingContext = { close: vi.fn().mockReturnValue(contextClosePending) } as unknown as BrowserContext;
+      const browser = { close: vi.fn().mockResolvedValue(undefined) } as unknown as Browser;
+      const metadata = { productId: 'ABC-123', title: '取得済みタイトル' };
+      const step = {
+        execute: vi.fn().mockImplementation(async (ctx) => {
+          ctx.page = page;
+          ctx.context = hangingContext;
+          ctx.browser = browser;
+          ctx.metadata = metadata;
+        }),
+      };
+      const orchestrator = new ScrapingOrchestrator({ customSteps: [step] });
+      let completed = false;
+      try {
+        const fetchPromise = orchestrator.fetch('ABC-123').then((result) => {
+          completed = true;
+          return result;
+        });
+
+        await Promise.resolve();
+        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(page.close).toHaveBeenCalledTimes(1);
+        expect(hangingContext.close).toHaveBeenCalledTimes(1);
+        expect(completed).toBe(false);
+        expect(browser.close).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(BROWSER_CLOSE_TIMEOUT_MS);
+
+        await expect(fetchPromise).resolves.toEqual(metadata);
+        expect(browser.close).toHaveBeenCalledTimes(1);
+        releaseContextClose();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('browser.close() が解決しなくても timeout 後に cleanup を完了し、次回要求を処理できる', async () => {
       vi.useFakeTimers();
       const closePending = new Promise<void>(() => {});

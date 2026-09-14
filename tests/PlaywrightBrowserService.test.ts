@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
-import { PlaywrightBrowserService } from '../src/browser/PlaywrightBrowserService';
+import { BROWSER_CLOSE_TIMEOUT_MS, PlaywrightBrowserService } from '../src/browser/PlaywrightBrowserService';
 import type { OwnedBrowserContext } from '../src/browser/types';
 
 vi.mock('playwright', () => {
@@ -335,6 +335,47 @@ describe('PlaywrightBrowserService', () => {
   });
 
   describe('dispose()', () => {
+    it('1つの所有Contextが停止しても他Contextを閉じ、timeout後にBrowser終了とdisposeを完了する', async () => {
+      vi.useFakeTimers();
+      let releaseContextClose!: () => void;
+      const contextClosePending = new Promise<void>((resolve) => {
+        releaseContextClose = resolve;
+      });
+      const hangingContext = { close: vi.fn().mockReturnValue(contextClosePending) };
+      const normalContext = { close: vi.fn().mockResolvedValue(undefined) };
+      const contextFactory = {
+        createContextOptions: vi.fn().mockReturnValue({}),
+        createContext: vi.fn()
+          .mockResolvedValueOnce(hangingContext)
+          .mockResolvedValueOnce(normalContext),
+      };
+      const service = new PlaywrightBrowserService(undefined, undefined, undefined, contextFactory);
+      await service.createContext();
+      await service.createContext();
+      let completed = false;
+      try {
+        const disposePromise = service.dispose().then(() => {
+          completed = true;
+        });
+
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(hangingContext.close).toHaveBeenCalledTimes(1);
+        expect(normalContext.close).toHaveBeenCalledTimes(1);
+        expect(completed).toBe(false);
+        expect(mockBrowser.close).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(BROWSER_CLOSE_TIMEOUT_MS);
+
+        await disposePromise;
+        expect(mockBrowser.close).toHaveBeenCalledTimes(1);
+        releaseContextClose();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('Browser が破棄される', async () => {
       const service = new PlaywrightBrowserService();
       await service.initialize();

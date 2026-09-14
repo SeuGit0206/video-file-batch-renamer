@@ -126,6 +126,25 @@ describe('GeminiFallbackStep search fallback failures', () => {
     return { service, page, context, browser };
   }
 
+  function createSuccessfulSearchBrowser() {
+    const matchedUrl = 'https://missav.ai/ja/abc-123';
+    return createSearchBrowser([{
+      href: matchedUrl,
+      text: 'ABC-123',
+      className: '',
+      parentClass: '',
+      grandParentClass: '',
+    }], {
+      title: 'ABC-123 Sample',
+      h1: 'ABC-123 Sample',
+      titleDom: 'ABC-123 Sample',
+      canonical: matchedUrl,
+      description: 'ABC-123 Sample',
+      actresses: '',
+      maker: '',
+    });
+  }
+
   it('ブラウザ再作成に失敗しても例外終了せずNotFoundを返す', async () => {
     const ctx = createInvalidContext();
     const service = {
@@ -259,6 +278,7 @@ describe('GeminiFallbackStep search fallback failures', () => {
     expect(oldPage.close).toHaveBeenCalledTimes(1);
     expect(oldContext.close).toHaveBeenCalledTimes(1);
     expect(oldBrowser.close).toHaveBeenCalledTimes(1);
+    expect(logger.warn).not.toHaveBeenCalled();
     expect(oldPageClose.mock.invocationCallOrder[0]).toBeLessThan(oldContext.close.mock.invocationCallOrder[0]);
     expect(oldContext.close.mock.invocationCallOrder[0]).toBeLessThan(oldBrowser.close.mock.invocationCallOrder[0]);
     expect(service.initialize).toHaveBeenCalledTimes(1);
@@ -323,6 +343,91 @@ describe('GeminiFallbackStep search fallback failures', () => {
 
       expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining(`timed out after ${BROWSER_CLOSE_TIMEOUT_MS}ms`));
       expect(ctx.browser).toBe(browser);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('既存Pageのcloseが未解決でもtimeout後に後続資源を閉じて新規Browserを生成する', async () => {
+    vi.useFakeTimers();
+    let releasePageClose!: () => void;
+    const pageClosePending = new Promise<void>((resolve) => {
+      releasePageClose = resolve;
+    });
+    const ctx = createInvalidContext();
+    const oldPage = { close: vi.fn().mockReturnValue(pageClosePending) } as unknown as IdentifiedPage;
+    const oldContext = { close: vi.fn().mockResolvedValue(undefined) };
+    const oldBrowser = { close: vi.fn().mockResolvedValue(undefined) };
+    ctx.page = oldPage;
+    ctx.context = oldContext as unknown as typeof ctx.context;
+    ctx.browser = oldBrowser as unknown as typeof ctx.browser;
+    const { service, browser } = createSuccessfulSearchBrowser();
+    let completed = false;
+    try {
+      const execution = createStep(service).execute(ctx).then(() => {
+        completed = true;
+      });
+
+      await Promise.resolve();
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(oldPage.close).toHaveBeenCalledTimes(1);
+      expect(completed).toBe(false);
+      expect(oldContext.close).not.toHaveBeenCalled();
+      expect(oldBrowser.close).not.toHaveBeenCalled();
+      expect(service.initialize).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(BROWSER_CLOSE_TIMEOUT_MS);
+
+      await execution;
+      expect(oldContext.close).toHaveBeenCalledTimes(1);
+      expect(oldBrowser.close).toHaveBeenCalledTimes(1);
+      expect(service.initialize).toHaveBeenCalledTimes(1);
+      expect(ctx.browser).toBe(browser);
+      releasePageClose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('既存Contextのcloseが未解決でもtimeout後にBrowser終了へ進んで新規Browserを生成する', async () => {
+    vi.useFakeTimers();
+    let releaseContextClose!: () => void;
+    const contextClosePending = new Promise<void>((resolve) => {
+      releaseContextClose = resolve;
+    });
+    const ctx = createInvalidContext();
+    const oldPage = { close: vi.fn().mockResolvedValue(undefined) } as unknown as IdentifiedPage;
+    const oldContext = { close: vi.fn().mockReturnValue(contextClosePending) };
+    const oldBrowser = { close: vi.fn().mockResolvedValue(undefined) };
+    ctx.page = oldPage;
+    ctx.context = oldContext as unknown as typeof ctx.context;
+    ctx.browser = oldBrowser as unknown as typeof ctx.browser;
+    const { service, browser } = createSuccessfulSearchBrowser();
+    let completed = false;
+    try {
+      const execution = createStep(service).execute(ctx).then(() => {
+        completed = true;
+      });
+
+      await Promise.resolve();
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(oldPage.close).toHaveBeenCalledTimes(1);
+      expect(oldContext.close).toHaveBeenCalledTimes(1);
+      expect(completed).toBe(false);
+      expect(oldBrowser.close).not.toHaveBeenCalled();
+      expect(service.initialize).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(BROWSER_CLOSE_TIMEOUT_MS);
+
+      await execution;
+      expect(oldBrowser.close).toHaveBeenCalledTimes(1);
+      expect(service.initialize).toHaveBeenCalledTimes(1);
+      expect(ctx.browser).toBe(browser);
+      releaseContextClose();
     } finally {
       vi.useRealTimers();
     }
