@@ -435,8 +435,16 @@ export class CloudflareDetectionStep implements IScrapingStep {
         }
 
         this.logger.info("Browser.Close (リトライ失敗によるクローズ)");
-        if (ctx.page) { try { await browserService.closePage(ctx.page); } catch {} ctx.page = null; }
-        if (ctx.context) { try { await browserService.closeContext(ctx.context); } catch {} ctx.context = null; }
+        if (ctx.page) {
+          const pageToClose = ctx.page;
+          ctx.page = null;
+          this.logCloseResult('Page', await closeWithTimeout(() => browserService.closePage(pageToClose)), true);
+        }
+        if (ctx.context) {
+          const contextToClose = ctx.context;
+          ctx.context = null;
+          this.logCloseResult('Context', await closeWithTimeout(() => browserService.closeContext(contextToClose)), true);
+        }
         if (ctx.browser) { try { await browserService.dispose(); } catch {} ctx.browser = null; }
       }
 
@@ -465,12 +473,14 @@ export class CloudflareDetectionStep implements IScrapingStep {
     });
   }
 
-  private logCloseResult(resource: string, result: CloseResult): void {
+  private logCloseResult(resource: string, result: CloseResult, retryCleanup = false): void {
+    const phase = retryCleanup ? 'Retry' : 'Existing';
+    const continuation = retryCleanup ? 'Continuing cleanup.' : 'Continuing retry.';
     if (result.status === 'timedOut') {
-      this.logger.warn(`[Cloudflare Retry] Existing ${resource} close timed out after ${BROWSER_CLOSE_TIMEOUT_MS}ms. Continuing retry.`);
+      this.logger.warn(`[Cloudflare Retry] ${phase} ${resource} close timed out after ${BROWSER_CLOSE_TIMEOUT_MS}ms. ${continuation}`);
     } else if (result.status === 'failed') {
       const message = result.error instanceof Error ? result.error.message : String(result.error);
-      this.logger.warn(`[Cloudflare Retry] Failed to close existing ${resource}: ${message}`);
+      this.logger.warn(`[Cloudflare Retry] Failed to close ${phase.toLowerCase()} ${resource}: ${message}`);
     }
   }
 

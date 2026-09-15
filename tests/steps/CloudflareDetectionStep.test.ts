@@ -28,7 +28,7 @@ describe('CloudflareDetectionStep browser switch', () => {
     vi.restoreAllMocks();
   });
 
-  function setup() {
+  function setup(retryFailure = false) {
     const closeOrder: string[] = [];
     const oldPage = { close: vi.fn(async () => { closeOrder.push('Page'); }) } as unknown as IdentifiedPage;
     const oldContext = { close: vi.fn(async () => { closeOrder.push('Context'); }) } as unknown as BrowserContext;
@@ -40,7 +40,17 @@ describe('CloudflareDetectionStep browser switch', () => {
       addInitScript: vi.fn().mockResolvedValue(undefined),
       cookies: vi.fn().mockResolvedValue([]),
     } as unknown as BrowserContext;
-    const newPage = { hashId: '' } as IdentifiedPage;
+    const newPage = (retryFailure ? {
+      hashId: '',
+      on: vi.fn(),
+      goto: vi.fn().mockResolvedValue(null),
+      waitForLoadState: vi.fn().mockResolvedValue(undefined),
+      waitForSelector: vi.fn().mockResolvedValue(undefined),
+      url: vi.fn().mockReturnValue('https://missav.ai/ja/abc-123'),
+      title: vi.fn().mockResolvedValue('Just a moment...'),
+      content: vi.fn().mockResolvedValue('<html>Cloudflare challenge</html>'),
+      close: vi.fn().mockResolvedValue(undefined),
+    } : { hashId: '' }) as IdentifiedPage;
     const switchService = {
       closePage: vi.fn(async (page: IdentifiedPage) => { await page.close(); }),
       closeContext: vi.fn(async (context: BrowserContext) => { await context.close(); }),
@@ -63,9 +73,14 @@ describe('CloudflareDetectionStep browser switch', () => {
       {} as BrowserSettingsProvider,
       { createContextOptions: vi.fn().mockReturnValue({}) } as unknown as BrowserConfigFactory,
       logger,
-      { getMaxRetries: vi.fn().mockReturnValue(1), shouldRetry: vi.fn().mockReturnValue(true) } as unknown as IRetryPolicy,
+      {
+        getMaxRetries: vi.fn().mockReturnValue(1),
+        shouldRetry: vi.fn().mockImplementation((attempt: number) => retryFailure ? attempt === 1 : true),
+        getCloudflareMinWaitTime: vi.fn().mockReturnValue(0),
+        isCloudflareTimeout: vi.fn().mockReturnValue(true),
+      } as unknown as IRetryPolicy,
       { handleCloudflareDetected: vi.fn().mockResolvedValue(undefined) } as unknown as IStealthStrategy,
-      { setupCDPTracking: vi.fn().mockRejectedValue(stopAfterNewPage) } as unknown as ICdpDiagnosticsService,
+      { setupCDPTracking: vi.fn().mockImplementation(() => retryFailure ? Promise.resolve(null) : Promise.reject(stopAfterNewPage)) } as unknown as ICdpDiagnosticsService,
       {} as IDiagnosticsStorageService,
       () => switchService,
     );
@@ -181,5 +196,81 @@ describe('CloudflareDetectionStep browser switch', () => {
     expect(state.logger.warn).toHaveBeenCalledWith(expect.stringContaining('Browser close timed out'));
     release();
     vi.useRealTimers();
+  });
+
+  it('Cloudflare再試行失敗後のPage終了が停止しても4秒後にContext・Browser cleanupへ進む', async () => {
+    vi.useFakeTimers();
+    const state = setup(true);
+    let release!: () => void;
+    const pendingClose = new Promise<void>((resolve) => { release = resolve; });
+    vi.mocked(state.newPage.close).mockReturnValue(pendingClose);
+    let completed = false;
+    const execution = state.step.execute(state.ctx).then(() => { completed = true; });
+
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(state.switchService.closePage).toHaveBeenCalledWith(state.newPage);
+      expect(state.switchService.closeContext).not.toHaveBeenCalled();
+      expect(state.switchService.dispose).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(BROWSER_CLOSE_TIMEOUT_MS);
+      expect(completed).toBe(true);
+      expect(state.switchService.closeContext).toHaveBeenCalledWith(state.newContext);
+      expect(state.switchService.dispose).toHaveBeenCalledOnce();
+      expect(state.logger.warn).toHaveBeenCalledWith(expect.stringContaining('Retry Page close timed out'));
+    } finally {
+      release();
+      await execution;
+    }
+  });
+
+  it('Cloudflare再試行失敗後のContext終了が停止しても4秒後にBrowser cleanupへ進む', async () => {
+    vi.useFakeTimers();
+    const state = setup(true);
+    let release!: () => void;
+    const pendingClose = new Promise<void>((resolve) => { release = resolve; });
+    vi.mocked(state.newContext.close).mockReturnValue(pendingClose);
+    let completed = false;
+    const execution = state.step.execute(state.ctx).then(() => { completed = true; });
+
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(state.switchService.closePage).toHaveBeenCalledWith(state.newPage);
+      expect(state.switchService.closeContext).toHaveBeenCalledWith(state.newContext);
+      expect(state.switchService.dispose).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(BROWSER_CLOSE_TIMEOUT_MS);
+      expect(completed).toBe(true);
+      expect(state.switchService.dispose).toHaveBeenCalledOnce();
+      expect(state.logger.warn).toHaveBeenCalledWith(expect.stringContaining('Retry Context close timed out'));
+    } finally {
+      release();
+      await execution;
+    }
+  });
+
+  it('Cloudflare再試行失敗後のPage・Context終了がrejectしてもBrowser cleanupへ進む', async () => {
+    const state = setup(true);
+    vi.mocked(state.newPage.close).mockRejectedValue(new Error('Page close failed'));
+    vi.mocked(state.newContext.close).mockRejectedValue(new Error('Context close failed'));
+
+    await state.step.execute(state.ctx);
+
+    expect(state.switchService.closePage).toHaveBeenCalledWith(state.newPage);
+    expect(state.switchService.closeContext).toHaveBeenCalledWith(state.newContext);
+    expect(state.switchService.dispose).toHaveBeenCalledOnce();
+    expect(state.logger.warn).toHaveBeenCalledWith(expect.stringContaining('Page close failed'));
+    expect(state.logger.warn).toHaveBeenCalledWith(expect.stringContaining('Context close failed'));
+  });
+
+  it('Cloudflare再試行失敗後のPage・Contextが正常終了したときは警告を出さない', async () => {
+    const state = setup(true);
+
+    await state.step.execute(state.ctx);
+
+    expect(state.switchService.closePage).toHaveBeenCalledWith(state.newPage);
+    expect(state.switchService.closeContext).toHaveBeenCalledWith(state.newContext);
+    expect(state.switchService.dispose).toHaveBeenCalledOnce();
+    expect(state.logger.warn).not.toHaveBeenCalled();
   });
 });
