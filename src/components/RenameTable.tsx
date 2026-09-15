@@ -312,7 +312,7 @@ export const RenameTable: React.FC<RenameTableProps> = React.memo(({
                           onClick={() => handleSingleRenameFile(file)}
                           disabled={file.status !== 'completed'}
                           className="p-1 hover:bg-[#141414] hover:text-white border border-[#141414] transition-colors cursor-pointer text-[10px] disabled:opacity-30"
-                          title="個別リネーム実行"
+                          title="個別リネーム予定名を確認"
                         >
                           <Check className="w-3 h-3 text-green-700" />
                         </button>

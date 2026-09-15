@@ -669,8 +669,8 @@ export default function App() {
   const handleSingleRenameFile = useCallback((file: VideoFile) => {
     if (file.status !== 'completed' || !file.metadata) return;
     const newName = getFormattedPreviewName(file);
-    setFiles(prev => prev.map(f => f.id === file.id ? { ...f, originalName: newName } : f));
-    addLog('Info', 'BatchRenameService', `個別リネーム成功: ${file.originalName} -> ${newName}`);
+    setStatusMessage(`変更予定名: ${file.originalName} → ${newName}（実ファイルは未変更）`);
+    addLog('Info', 'BatchRenameService', `個別リネーム予定名を確認: ${file.originalName} -> ${newName}（実ファイルは未変更）`);
   }, [getFormattedPreviewName, addLog]);
 
   const handleExportCsv = useCallback((mode: 'preview' | 'result') => {
