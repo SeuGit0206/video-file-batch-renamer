@@ -175,6 +175,20 @@ export default function App() {
   const [progress, setProgress] = useState<number>(0);
   const [statusMessage, setStatusMessage] = useState<string>('準備完了');
   const abortControllerRef = useRef<AbortController | null>(null);
+  const metadataRequestVersions = useRef(new Map<string, number>());
+  const fileListGeneration = useRef(0);
+  const invalidateMetadataRequests = useCallback(() => {
+    fileListGeneration.current++;
+    metadataRequestVersions.current.clear();
+  }, []);
+  const beginMetadataRequest = useCallback((fileId: string) => {
+    const version = (metadataRequestVersions.current.get(fileId) ?? 0) + 1;
+    metadataRequestVersions.current.set(fileId, version);
+    return { version, generation: fileListGeneration.current };
+  }, []);
+  const isLatestMetadataRequest = useCallback((fileId: string, request: { version: number; generation: number }) =>
+    fileListGeneration.current === request.generation &&
+    metadataRequestVersions.current.get(fileId) === request.version, []);
   const [logs, setLogs] = useState<LogEntry[]>([
     {
       id: 'l0',
@@ -510,6 +524,8 @@ export default function App() {
     }
 
     const totalFiles = pendingFiles.length;
+    const requestVersions = new Map(pendingFiles.map(file => [file.id, beginMetadataRequest(file.id)]));
+    const requestGeneration = fileListGeneration.current;
     setStatusMessage(`メタデータ照会中... (0 / ${totalFiles} 件)`);
     let completedCount = 0;
     const effectiveConcurrency = Math.max(1, Math.min(3, Math.floor(maxConcurrency || 2)));
@@ -522,12 +538,14 @@ export default function App() {
         async (file) => {
           if (signal.aborted) return;
           const id = file.extractedId!;
-          setFiles(prev => prev.map(f => f.id === file.id ? { ...f, status: 'searching' } : f));
+          const requestVersion = requestVersions.get(file.id)!;
+          setFiles(prev => prev.map(f => f.id === file.id && isLatestMetadataRequest(file.id, requestVersion)
+            ? { ...f, status: 'searching' } : f));
 
           if (useCache && metadataCache[id]) {
             addLog('Info', 'LiteDbCacheAdapter', `キャッシュヒット: [${id}]`);
             const cachedMetadata = metadataCache[id];
-            setFiles(prev => prev.map(f => f.id === file.id ? {
+            setFiles(prev => prev.map(f => f.id === file.id && isLatestMetadataRequest(file.id, requestVersion) ? {
               ...f,
               status: 'completed',
               metadata: cachedMetadata,
@@ -542,38 +560,41 @@ export default function App() {
 
               const res = await fetch(`/api/metadata?id=${encodeURIComponent(id)}`, { signal });
               const meta = await parseMetadataApiResponse(res);
-              updateMetadataCache(id, meta);
-
-              setFiles(prev => prev.map(f => f.id === file.id ? {
-                ...f,
-                status: 'completed',
-                metadata: meta,
-                detailUrl: meta.detailUrl || `https://missav.ai/ja/${id.toLowerCase()}`
-              } : f));
-              addLog('Info', 'ScrapingOrchestrator', `メタデータ取得成功: [${id}] - ${meta.title}`);
+              if (isLatestMetadataRequest(file.id, requestVersion)) {
+                updateMetadataCache(id, meta);
+                setFiles(prev => prev.map(f => f.id === file.id && isLatestMetadataRequest(file.id, requestVersion) ? {
+                  ...f,
+                  status: 'completed',
+                  metadata: meta,
+                  detailUrl: meta.detailUrl || `https://missav.ai/ja/${id.toLowerCase()}`
+                } : f));
+                addLog('Info', 'ScrapingOrchestrator', `メタデータ取得成功: [${id}] - ${meta.title}`);
+              }
             } catch (err: unknown) {
-              if (signal.aborted || (err instanceof Error && err.name === 'AbortError')) {
+              if (isLatestMetadataRequest(file.id, requestVersion) && (signal.aborted || (err instanceof Error && err.name === 'AbortError'))) {
                 // 中断した行だけを待機状態へ戻し、取得済みの結果は保持する。
-                setFiles(prev => prev.map(f => f.id === file.id && f.status === 'searching'
+                setFiles(prev => prev.map(f => f.id === file.id && f.status === 'searching' && isLatestMetadataRequest(file.id, requestVersion)
                   ? { ...f, status: 'pending' }
                   : f));
                 return;
               }
-              const msg = err instanceof Error ? err.message : String(err);
-              const classified = AppErrorClassifier.classify(err);
-              setCurrentErrorDetails(classified);
-              addLog('Error', 'PlaywrightBrowserService', `取得エラー [${id}]: ${msg}`);
-              setFiles(prev => prev.map(f => f.id === file.id ? {
-                ...f,
-                status: 'error',
-                errorMessage: msg
-              } : f));
+              if (isLatestMetadataRequest(file.id, requestVersion)) {
+                const msg = err instanceof Error ? err.message : String(err);
+                const classified = AppErrorClassifier.classify(err);
+                setCurrentErrorDetails(classified);
+                addLog('Error', 'PlaywrightBrowserService', `取得エラー [${id}]: ${msg}`);
+                setFiles(prev => prev.map(f => f.id === file.id && isLatestMetadataRequest(file.id, requestVersion) ? {
+                  ...f,
+                  status: 'error',
+                  errorMessage: msg
+                } : f));
+              }
             }
           }
 
           completedCount++;
           setProgress(Math.round((completedCount / totalFiles) * 100));
-          if (!signal.aborted) {
+          if (!signal.aborted && fileListGeneration.current === requestGeneration) {
             setStatusMessage(`メタデータ照会中... (${completedCount} / ${totalFiles} 件)`);
           }
         },
@@ -584,14 +605,18 @@ export default function App() {
       abortControllerRef.current = null;
       if (signal.aborted) {
         setBrowserState('idle');
-        setStatusMessage(`メタデータ取得を中断しました (${completedCount} / ${totalFiles} 件完了)`);
+        if (fileListGeneration.current === requestGeneration) {
+          setStatusMessage(`メタデータ取得を中断しました (${completedCount} / ${totalFiles} 件完了)`);
+        }
         addLog('Warning', 'GetMetadataUseCase', `メタデータ取得を中断しました (${completedCount} / ${totalFiles} 件完了)`);
       } else {
         setBrowserState('completed');
-        setStatusMessage(`メタデータ同期が完了しました (${completedCount} / ${totalFiles} 件)`);
+        if (fileListGeneration.current === requestGeneration) {
+          setStatusMessage(`メタデータ同期が完了しました (${completedCount} / ${totalFiles} 件)`);
+        }
       }
     }
-  }, [files, metadataCache, useCache, maxConcurrency, updateMetadataCache, addLog]);
+  }, [files, metadataCache, useCache, maxConcurrency, updateMetadataCache, addLog, beginMetadataRequest, isLatestMetadataRequest]);
 
   const handleUndoRename = useCallback(() => {
     if (renameHistory.length === 0) return;
@@ -605,15 +630,18 @@ export default function App() {
   const handleSingleRefreshMetadata = useCallback(async (file: VideoFile) => {
     if (!file.extractedId) return;
     const id = file.extractedId;
-    setFiles(prev => prev.map(f => f.id === file.id ? { ...f, status: 'searching' } : f));
+    const requestVersion = beginMetadataRequest(file.id);
+    setFiles(prev => prev.map(f => f.id === file.id && isLatestMetadataRequest(file.id, requestVersion)
+      ? { ...f, status: 'searching' } : f));
     addLog('Info', 'ScrapingOrchestrator', `個別メタデータ再取得開始: [${id}]`);
 
     try {
       const res = await fetch(`/api/metadata?id=${encodeURIComponent(id)}`);
       const meta = await parseMetadataApiResponse(res);
+      if (!isLatestMetadataRequest(file.id, requestVersion)) return;
       updateMetadataCache(id, meta);
 
-      setFiles(prev => prev.map(f => f.id === file.id ? {
+      setFiles(prev => prev.map(f => f.id === file.id && isLatestMetadataRequest(file.id, requestVersion) ? {
         ...f,
         status: 'completed',
         metadata: meta,
@@ -626,16 +654,17 @@ export default function App() {
       } : f));
       addLog('Info', 'ScrapingOrchestrator', `個別取得成功: [${id}] - ${meta.title}`);
     } catch (err: unknown) {
+      if (!isLatestMetadataRequest(file.id, requestVersion)) return;
       const msg = err instanceof Error ? err.message : String(err);
       setCurrentErrorDetails(AppErrorClassifier.classify(err));
-      setFiles(prev => prev.map(f => f.id === file.id ? {
+      setFiles(prev => prev.map(f => f.id === file.id && isLatestMetadataRequest(file.id, requestVersion) ? {
         ...f,
         status: 'error',
         errorMessage: msg
       } : f));
       addLog('Error', 'ScrapingOrchestrator', `個別取得失敗 [${id}]: ${msg}`);
     }
-  }, [addLog, updateMetadataCache]);
+  }, [addLog, updateMetadataCache, beginMetadataRequest, isLatestMetadataRequest]);
 
   const handleOpenMetadataEditModal = useCallback((file: VideoFile) => {
     setEditingFile(file);
@@ -734,10 +763,11 @@ EndGlobal`);
   }, []);
 
   const handleResetList = useCallback(() => {
+    invalidateMetadataRequests();
     handleResetFiles([]);
     addLog('Info', 'MainViewModel', 'ファイルリストを初期化しました。');
     setStatusMessage('ファイルリストを初期化しました。');
-  }, [handleResetFiles, addLog]);
+  }, [handleResetFiles, addLog, invalidateMetadataRequests]);
 
   const handleOpenFilePicker = useCallback(() => {
     if (fileInputRef.current) {
@@ -1073,6 +1103,7 @@ EndGlobal`);
                   if (backup.settings?.customRegex) setRegexPattern(backup.settings.customRegex);
                   if (backup.settings?.geminiApiKey) setGeminiApiKeyInput(backup.settings.geminiApiKey);
                   if (Array.isArray(backup.fileList) && backup.fileList.length > 0) {
+                    invalidateMetadataRequests();
                     setFiles(backup.fileList);
                   }
                 }}

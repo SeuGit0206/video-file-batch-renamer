@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import App from '../../src/App';
 
 const cacheKey = 'video_renamer_meta_cache';
@@ -98,6 +98,191 @@ describe('メタデータ取得・中断の画面操作', () => {
     expect(JSON.parse(localStorage.getItem(cacheKey)!)).toEqual({
       'ABC-123': { title: '個別再取得結果', detailUrl: refreshedDetailUrl },
     });
+  });
+
+  it('個別再取得Bの後に古い一括取得Aが完了しても、画面・status・キャッシュはBを保持する', async () => {
+    const bulkOld = { title: '一括取得の古いタイトル', detailUrl: 'https://example.test/product/ABC-123-bulk-old' };
+    const refreshNew = { title: '個別再取得の新しいタイトル', detailUrl: 'https://example.test/product/ABC-123-refresh-new' };
+    let finishBulk!: (value: Response) => void;
+    let finishRefresh!: (value: Response) => void;
+    const bulkRequest = new Promise<Response>((resolve) => { finishBulk = resolve; });
+    const refreshRequest = new Promise<Response>((resolve) => { finishRefresh = resolve; });
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(() => bulkRequest)
+      .mockImplementationOnce(() => refreshRequest);
+    stubMetadataFetch(fetchMock);
+    render(<App />);
+    addFiles('ABC-123.mp4');
+
+    try {
+      startFetch();
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      fireEvent.click(rowFor('ABC-123.mp4').getByTitle('個別メタデータ再取得'));
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+      expect(fetchMock.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ signal: expect.any(AbortSignal) }));
+      expect(fetchMock.mock.calls[1]?.[1]).toBeUndefined();
+
+      finishRefresh(response({ data: refreshNew }));
+      await waitFor(() => expect(rowFor('ABC-123.mp4').getByText(/個別再取得の新しいタイトル/)).toBeTruthy());
+      expect(rowFor('ABC-123.mp4').getByRole('link', { name: refreshNew.detailUrl })).toBeTruthy();
+      expect(rowFor('ABC-123.mp4').getByText('READY')).toBeTruthy();
+      await waitFor(() => expect(JSON.parse(localStorage.getItem(cacheKey)!)).toEqual({ 'ABC-123': refreshNew }));
+      expect(screen.getByRole('button', { name: '中断する' })).toBeTruthy();
+
+      finishBulk(response({ data: bulkOld }));
+      await screen.findByText('メタデータ同期が完了しました (1 / 1 件)');
+      expect(rowFor('ABC-123.mp4').getByText(/個別再取得の新しいタイトル/)).toBeTruthy();
+      expect(rowFor('ABC-123.mp4').getByRole('link', { name: refreshNew.detailUrl })).toBeTruthy();
+      expect(rowFor('ABC-123.mp4').getByText('READY')).toBeTruthy();
+      expect(JSON.parse(localStorage.getItem(cacheKey)!)).toEqual({ 'ABC-123': refreshNew });
+    } finally {
+      finishBulk(response({ data: bulkOld }));
+      finishRefresh(response({ data: refreshNew }));
+    }
+  });
+
+  it.each([
+    ['成功', () => response({ data: { title: '一括取得の古いタイトル', detailUrl: 'https://example.test/product/ABC-123-bulk-old' } })],
+    ['HTTP失敗', () => response({ error: '古い取得の失敗' }, 500)],
+  ])('古い一括取得Aが%sしても、実行中の個別再取得Bの状態を壊さない', async (_result, bulkResponse) => {
+    const bulkOld = { title: '一括取得の古いタイトル', detailUrl: 'https://example.test/product/ABC-123-bulk-old' };
+    const refreshNew = { title: '個別再取得の新しいタイトル', detailUrl: 'https://example.test/product/ABC-123-refresh-new' };
+    let finishBulk!: (value: Response) => void;
+    let finishRefresh!: (value: Response) => void;
+    const bulkRequest = new Promise<Response>((resolve) => { finishBulk = resolve; });
+    const refreshRequest = new Promise<Response>((resolve) => { finishRefresh = resolve; });
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(() => bulkRequest)
+      .mockImplementationOnce(() => refreshRequest);
+    stubMetadataFetch(fetchMock);
+    render(<App />);
+    addFiles('ABC-123.mp4');
+
+    try {
+      startFetch();
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      fireEvent.click(rowFor('ABC-123.mp4').getByTitle('個別メタデータ再取得'));
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+      finishBulk(bulkResponse());
+      await screen.findByText('メタデータ同期が完了しました (1 / 1 件)');
+      expect(rowFor('ABC-123.mp4').getByText('FETCHING')).toBeTruthy();
+      expect(rowFor('ABC-123.mp4').queryByText(/一括取得の古いタイトル/)).toBeNull();
+      expect(rowFor('ABC-123.mp4').queryByRole('button', { name: /CONFLICT/ })).toBeNull();
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(JSON.parse(localStorage.getItem(cacheKey) || '{}')).not.toHaveProperty('ABC-123');
+
+      finishRefresh(response({ data: refreshNew }));
+      await waitFor(() => expect(rowFor('ABC-123.mp4').getByText(/個別再取得の新しいタイトル/)).toBeTruthy());
+      expect(rowFor('ABC-123.mp4').getByRole('link', { name: refreshNew.detailUrl })).toBeTruthy();
+      expect(rowFor('ABC-123.mp4').getByText('READY')).toBeTruthy();
+      await waitFor(() => expect(JSON.parse(localStorage.getItem(cacheKey)!)).toEqual({ 'ABC-123': refreshNew }));
+    } finally {
+      finishBulk(response({ data: bulkOld }));
+      finishRefresh(response({ data: refreshNew }));
+    }
+  });
+
+  it.each([
+    ['成功', () => response({ data: { title: '初期化前の古いタイトル' } })],
+    ['HTTP失敗', () => response({ error: '初期化前の失敗' }, 500)],
+  ])('リスト初期化後は古い一括取得の%sを画面やキャッシュへ反映しない', async (_result, oldResponse) => {
+    let finishOld!: (value: Response) => void;
+    const oldRequest = new Promise<Response>((resolve) => { finishOld = resolve; });
+    const fetchMock = vi.fn().mockImplementation(() => oldRequest);
+    stubMetadataFetch(fetchMock);
+    render(<App />);
+    addFiles('ABC-123.mp4');
+
+    try {
+      startFetch();
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      fireEvent.click(screen.getByRole('button', { name: 'リスト初期化' }));
+      expect(screen.queryByText('ABC-123.mp4')).toBeNull();
+
+      finishOld(oldResponse());
+      await waitFor(() => expect(screen.queryByRole('button', { name: '中断する' })).toBeNull());
+      expect(screen.queryByText('ABC-123.mp4')).toBeNull();
+      expect(screen.queryByText('初期化前の古いタイトル')).toBeNull();
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(screen.getAllByText('ファイルリストを初期化しました。').length).toBeGreaterThan(0);
+      expect(JSON.parse(localStorage.getItem(cacheKey) || '{}')).not.toHaveProperty('ABC-123');
+    } finally {
+      finishOld(oldResponse());
+    }
+  });
+
+  it.each([
+    ['成功', () => response({ data: { title: '復元前の古いタイトル', detailUrl: 'https://example.test/old' } })],
+    ['HTTP失敗', () => response({ error: '復元前の失敗' }, 500)],
+  ])('バックアップ復元後は同じファイルIDの古い再取得%sを反映しない', async (_result, oldResponse) => {
+    const restored = { title: '復元したタイトル', detailUrl: 'https://example.test/restored' };
+    let finishOld!: (value: Response) => void;
+    const oldRequest = new Promise<Response>((resolve) => { finishOld = resolve; });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ data: restored }))
+      .mockImplementationOnce(() => oldRequest);
+    stubMetadataFetch(fetchMock);
+    render(<App />);
+    addFiles('ABC-123.mp4');
+    startFetch();
+    await screen.findByText('メタデータ同期が完了しました (1 / 1 件)');
+    fireEvent.click(screen.getByRole('button', { name: 'バックアップ作成' }));
+
+    try {
+      fireEvent.click(rowFor('ABC-123.mp4').getByTitle('個別メタデータ再取得'));
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+      expect(rowFor('ABC-123.mp4').getByText('FETCHING')).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: '復元' }));
+      expect(rowFor('ABC-123.mp4').getByText('READY')).toBeTruthy();
+      expect(rowFor('ABC-123.mp4').getByText(/復元したタイトル/)).toBeTruthy();
+
+      await act(async () => { finishOld(oldResponse()); });
+      expect(rowFor('ABC-123.mp4').getByText(/復元したタイトル/)).toBeTruthy();
+      expect(rowFor('ABC-123.mp4').getByText('READY')).toBeTruthy();
+      expect(rowFor('ABC-123.mp4').getByRole('link', { name: restored.detailUrl })).toBeTruthy();
+      expect(rowFor('ABC-123.mp4').queryByRole('button', { name: /CONFLICT/ })).toBeNull();
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(JSON.parse(localStorage.getItem(cacheKey)!)).toEqual({ 'ABC-123': restored });
+    } finally {
+      finishOld(oldResponse());
+    }
+  });
+
+  it('初期化後に同じファイルを再追加しても、古い取得Aではなく新しい取得Bだけを反映する', async () => {
+    const oldMetadata = { title: '再追加前の古いタイトル', detailUrl: 'https://example.test/old' };
+    const newMetadata = { title: '再追加後の新しいタイトル', detailUrl: 'https://example.test/new' };
+    let finishOld!: (value: Response) => void;
+    let finishNew!: (value: Response) => void;
+    const oldRequest = new Promise<Response>((resolve) => { finishOld = resolve; });
+    const newRequest = new Promise<Response>((resolve) => { finishNew = resolve; });
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(() => oldRequest)
+      .mockImplementationOnce(() => newRequest);
+    stubMetadataFetch(fetchMock);
+    render(<App />);
+    addFiles('ABC-123.mp4');
+
+    try {
+      startFetch();
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      fireEvent.click(screen.getByRole('button', { name: 'リスト初期化' }));
+      addFiles('ABC-123.mp4');
+      fireEvent.click(rowFor('ABC-123.mp4').getByTitle('個別メタデータ再取得'));
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+      finishNew(response({ data: newMetadata }));
+      await waitFor(() => expect(rowFor('ABC-123.mp4').getByText(/再追加後の新しいタイトル/)).toBeTruthy());
+      finishOld(response({ data: oldMetadata }));
+      await waitFor(() => expect(screen.queryByRole('button', { name: '中断する' })).toBeNull());
+      expect(rowFor('ABC-123.mp4').getByText(/再追加後の新しいタイトル/)).toBeTruthy();
+      expect(rowFor('ABC-123.mp4').getByRole('link', { name: newMetadata.detailUrl })).toBeTruthy();
+      expect(rowFor('ABC-123.mp4').getByText('READY')).toBeTruthy();
+      expect(JSON.parse(localStorage.getItem(cacheKey)!)).toEqual({ 'ABC-123': newMetadata });
+    } finally {
+      finishOld(response({ data: oldMetadata }));
+      finishNew(response({ data: newMetadata }));
+    }
   });
 
   it('保存済みのメタデータを使う場合は通信せず完了する', async () => {
