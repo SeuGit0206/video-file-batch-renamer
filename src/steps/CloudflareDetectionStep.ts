@@ -4,6 +4,7 @@ import type { BrowserContext, Cookie, Request as PWRequest, Response as PWRespon
 import type { IScrapingStep } from './IScrapingStep';
 import type { ScrapingContext } from './ScrapingContext';
 import { PlaywrightBrowserService } from '../browser/PlaywrightBrowserService';
+import { BROWSER_CLOSE_TIMEOUT_MS, closeWithTimeout, type CloseResult } from '../browser/closeWithTimeout';
 import type { BrowserSettingsProvider } from '../browser/BrowserSettingsProvider';
 import type { BrowserConfigFactory } from '../browser/BrowserConfigFactory';
 import type { IdentifiedPage } from '../browser/types';
@@ -55,12 +56,16 @@ export class CloudflareDetectionStep implements IScrapingStep {
         ? this.browserServiceFactory()
         : new PlaywrightBrowserService(this.settingsProvider, this.configFactory);
 
-      if (ctx.page) { try { await browserService.closePage(ctx.page); } catch {} ctx.page = null; }
-      if (ctx.context) { try { await browserService.closeContext(ctx.context); } catch {} ctx.context = null; }
-      if (ctx.browser) { try { await browserService.dispose(); } catch {} ctx.browser = null; }
+      const oldPage = ctx.page;
+      const oldContext = ctx.context;
+      const oldBrowser = ctx.browser;
+      ctx.page = null;
+      ctx.context = null;
+      ctx.browser = null;
 
-      this.logger.info("Browser.DisposeAsync()");
-      this.logger.info("Playwright.Dispose()");
+      if (oldPage) this.logCloseResult('Page', await closeWithTimeout(() => oldPage.close()));
+      if (oldContext) this.logCloseResult('Context', await closeWithTimeout(() => oldContext.close()));
+      if (oldBrowser) this.logCloseResult('Browser', await closeWithTimeout(() => oldBrowser.close()));
 
       const maxRetries = this.retryPolicy.getMaxRetries();
       ctx.isBypassed = false;
@@ -458,6 +463,15 @@ export class CloudflareDetectionStep implements IScrapingStep {
     await context.addInitScript(() => {
       Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
     });
+  }
+
+  private logCloseResult(resource: string, result: CloseResult): void {
+    if (result.status === 'timedOut') {
+      this.logger.warn(`[Cloudflare Retry] Existing ${resource} close timed out after ${BROWSER_CLOSE_TIMEOUT_MS}ms. Continuing retry.`);
+    } else if (result.status === 'failed') {
+      const message = result.error instanceof Error ? result.error.message : String(result.error);
+      this.logger.warn(`[Cloudflare Retry] Failed to close existing ${resource}: ${message}`);
+    }
   }
 
   private async capturePageState(page: IdentifiedPage | null, context: BrowserContext | null, status: number): Promise<Record<string, unknown> | null> {
