@@ -704,15 +704,16 @@ export default function App() {
 
   const handleExportCsv = useCallback((mode: 'preview' | 'result') => {
     const headers = ['FileID', 'OriginalName', 'ExtractedID', 'Status', 'RenamedPreview', 'Title', 'Actress', 'ReleaseDate'];
+    const quoteCsvCell = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
     const rows = files.map(f => [
       f.id,
-      `"${f.originalName}"`,
-      `"${f.extractedId || ''}"`,
+      quoteCsvCell(f.originalName),
+      quoteCsvCell(f.extractedId || ''),
       f.status,
-      `"${getFormattedPreviewName(f)}"`,
-      `"${(f.metadata?.title as string) || ''}"`,
-      `"${(f.metadata?.actress as string) || ''}"`,
-      `"${(f.metadata?.releaseDate as string) || ''}"`
+      quoteCsvCell(getFormattedPreviewName(f)),
+      quoteCsvCell((f.metadata?.title as string) || ''),
+      quoteCsvCell((f.metadata?.actress as string) || ''),
+      quoteCsvCell((f.metadata?.releaseDate as string) || '')
     ]);
 
     const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
