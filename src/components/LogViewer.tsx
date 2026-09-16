@@ -4,7 +4,7 @@ import type { LogEntry } from '../types';
 
 interface LogViewerProps {
   logs: LogEntry[];
-  handleCopyLogs: () => void;
+  handleCopyLogs: () => Promise<void>;
   handleSaveLogs: () => void;
   handleClearLogs: () => void;
 }
@@ -21,6 +21,7 @@ export const LogViewer: React.FC<LogViewerProps> = React.memo(({
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState<string | null>(null);
 
   useEffect(() => {
     if (logContainerRef.current) {
@@ -60,10 +61,16 @@ export const LogViewer: React.FC<LogViewerProps> = React.memo(({
     });
   }, [logs, levelFilter, searchQuery, startDate, endDate]);
 
-  const onCopy = () => {
-    handleCopyLogs();
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const onCopy = async () => {
+    setCopyError(null);
+    try {
+      await handleCopyLogs();
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+      setCopyError('ログのクリップボードコピーに失敗しました。');
+    }
   };
 
   return (
@@ -83,6 +90,7 @@ export const LogViewer: React.FC<LogViewerProps> = React.memo(({
             {copied ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
             {copied ? 'コピー完了' : '📋 ログをコピー'}
           </button>
+          {copyError && <span role="alert" className="text-[10px] text-red-300">{copyError}</span>}
           <button 
             type="button"
             onClick={handleSaveLogs}
@@ -185,4 +193,3 @@ export const LogViewer: React.FC<LogViewerProps> = React.memo(({
 });
 
 LogViewer.displayName = 'LogViewer';
-

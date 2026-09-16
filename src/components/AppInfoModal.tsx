@@ -17,6 +17,7 @@ export const AppInfoModal: React.FC<AppInfoModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'info' | 'changelog' | 'backup' | 'logs'>('info');
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState<string | null>(null);
   const [importStatus, setImportStatus] = useState<string | null>(null);
 
   if (!isOpen) return null;
@@ -94,7 +95,7 @@ export const AppInfoModal: React.FC<AppInfoModalProps> = ({
     },
   ];
 
-  const handleCopyDiagnostics = () => {
+  const handleCopyDiagnostics = async () => {
     const infoStr = JSON.stringify(
       {
         appVersion,
@@ -106,9 +107,15 @@ export const AppInfoModal: React.FC<AppInfoModalProps> = ({
       null,
       2
     );
-    void navigator.clipboard.writeText(infoStr);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setCopyError(null);
+    try {
+      await navigator.clipboard.writeText(infoStr);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+      setCopyError('診断情報のクリップボードコピーに失敗しました。');
+    }
   };
 
   const handleExportLogs = () => {
@@ -367,6 +374,7 @@ export const AppInfoModal: React.FC<AppInfoModalProps> = ({
                     <FileText className="w-3.5 h-3.5" />
                     ログをJSON出力
                   </button>
+                  {copyError && <span role="alert" className="text-red-700">{copyError}</span>}
                   <button
                     type="button"
                     onClick={handleCopyDiagnostics}

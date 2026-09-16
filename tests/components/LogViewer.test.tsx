@@ -24,7 +24,7 @@ describe('LogViewer Component', () => {
   ];
 
   it('renders log entries and triggers control buttons', () => {
-    const handleCopyLogs = vi.fn();
+    const handleCopyLogs = vi.fn().mockResolvedValue(undefined);
     const handleSaveLogs = vi.fn();
     const handleClearLogs = vi.fn();
 

@@ -115,6 +115,7 @@ export default function App() {
   const [selectedPhaseId, setSelectedPhaseId] = useState<number>(1);
   const [selectedFileIndex, setSelectedFileIndex] = useState<number>(0);
   const [copiedFile, setCopiedFile] = useState<string | null>(null);
+  const [copyFileError, setCopyFileError] = useState<string | null>(null);
   const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState<boolean>(false);
   const [isRuleEditorOpen, setIsRuleEditorOpen] = useState<boolean>(false);
@@ -757,10 +758,16 @@ EndGlobal`);
     addLog('Info', 'ProjectPackager', 'C# プロジェクトZIPのダウンロードが完了しました。');
   }, [addLog]);
 
-  const copyToClipboard = useCallback((text: string, filename: string) => {
-    void navigator.clipboard.writeText(text);
-    setCopiedFile(filename);
-    setTimeout(() => setCopiedFile(null), 2000);
+  const copyToClipboard = useCallback(async (text: string, filename: string) => {
+    setCopyFileError(null);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedFile(filename);
+      setTimeout(() => setCopiedFile(null), 2000);
+    } catch {
+      setCopiedFile(null);
+      setCopyFileError('ファイル内容のクリップボードコピーに失敗しました。');
+    }
   }, []);
 
   const handleResetList = useCallback(() => {
@@ -1114,9 +1121,9 @@ EndGlobal`);
               {/* Log Viewer Component (Step 1) */}
               <LogViewer 
                 logs={logs}
-                handleCopyLogs={() => {
+                handleCopyLogs={async () => {
                   const logText = logs.map(l => `[${l.timestamp}] [${l.level}] [${l.source}] ${l.message}`).join('\n');
-                  void navigator.clipboard.writeText(logText);
+                  await navigator.clipboard.writeText(logText);
                   addLog('Info', 'LogViewer', 'ログをクリップボードにコピーしました。');
                 }}
                 handleSaveLogs={() => {
@@ -1263,6 +1270,9 @@ EndGlobal`);
                         'コピー'
                       )}
                     </button>
+                    {copyFileError && (
+                      <span role="alert" className="text-xs text-red-700">{copyFileError}</span>
+                    )}
                   </div>
 
                   <div className="p-4 overflow-auto max-h-[500px] bg-[#141414] text-[#E4E3E0] font-mono text-xs leading-relaxed">
