@@ -5,6 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import App from '../../src/App';
 
 const originalCreateObjectURL = Object.getOwnPropertyDescriptor(URL, 'createObjectURL');
+const originalRevokeObjectURL = Object.getOwnPropertyDescriptor(URL, 'revokeObjectURL');
 
 function readCsvRows(csv: string): string[][] {
   const rows: string[][] = [];
@@ -49,6 +50,7 @@ function readBlob(blob: Blob): Promise<string> {
 describe('Appの直接CSV出力', () => {
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     localStorage.clear();
@@ -56,6 +58,11 @@ describe('Appの直接CSV出力', () => {
       Object.defineProperty(URL, 'createObjectURL', originalCreateObjectURL);
     } else {
       delete (URL as { createObjectURL?: typeof URL.createObjectURL }).createObjectURL;
+    }
+    if (originalRevokeObjectURL) {
+      Object.defineProperty(URL, 'revokeObjectURL', originalRevokeObjectURL);
+    } else {
+      delete (URL as { revokeObjectURL?: typeof URL.revokeObjectURL }).revokeObjectURL;
     }
   });
 
@@ -88,8 +95,12 @@ describe('Appの直接CSV出力', () => {
       value: vi.fn((blob: Blob) => { downloadedBlob = blob; return 'blob:csv-test'; }),
     });
     let downloadedFilename: string | undefined;
+    const revoke = vi.fn();
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: revoke });
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
       downloadedFilename = this.download;
+      expect(this.href).toBe('blob:csv-test');
+      expect(revoke).not.toHaveBeenCalled();
     });
 
     render(<App />);
@@ -107,7 +118,13 @@ describe('Appの直接CSV出力', () => {
     await screen.findByText('メタデータ同期が完了しました (5 / 5 件)');
     await waitFor(() => expect(metadataFetch).toHaveBeenCalledTimes(5));
 
+    vi.useFakeTimers();
     fireEvent.click(screen.getByRole('button', { name: buttonName }));
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+    expect(revoke).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(40_000);
+    expect(revoke).toHaveBeenCalledExactlyOnceWith('blob:csv-test');
+    vi.useRealTimers();
     expect(downloadedBlob).toBeDefined();
     const csv = await readBlob(downloadedBlob!);
     const rows = readCsvRows(csv);

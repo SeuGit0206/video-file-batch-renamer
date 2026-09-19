@@ -36,6 +36,7 @@ import type { RulePreset } from './types/rule';
 import { extractIdFromFilename } from './extractors';
 import { FileNameSanitizer, FileNameFormatter } from './services/formatter';
 import { asyncPool } from './utils/asyncPool';
+import { downloadBlob } from './utils/downloadBlob';
 import { useAppSettings } from './hooks/useAppSettings';
 import { useMetadataSync } from './hooks/useMetadataSync';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
@@ -719,11 +720,7 @@ export default function App() {
 
     const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = mode === 'preview' ? 'rename_preview.csv' : 'rename_results.csv';
-    link.click();
+    downloadBlob(blob, mode === 'preview' ? 'rename_preview.csv' : 'rename_results.csv');
     addLog('Info', 'CsvExporter', `${mode === 'preview' ? 'プレビュー' : '結果'} CSVを出力しました。`);
   }, [files, getFormattedPreviewName, addLog]);
 
@@ -750,11 +747,7 @@ EndGlobal`);
     });
 
     const content = await zip.generateAsync({ type: 'blob' });
-    const url = URL.createObjectURL(content);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'VideoRenamer_Csharp_Project.zip';
-    a.click();
+    downloadBlob(content, 'VideoRenamer_Csharp_Project.zip');
     addLog('Info', 'ProjectPackager', 'C# プロジェクトZIPのダウンロードが完了しました。');
   }, [addLog]);
 
@@ -1129,11 +1122,7 @@ EndGlobal`);
                 handleSaveLogs={() => {
                   const logText = logs.map(l => `[${l.timestamp}] [${l.level}] [${l.source}] ${l.message}`).join('\n');
                   const blob = new Blob([logText], { type: 'text/plain;charset=utf-8;' });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url;
-                  a.download = `app_logs_${Date.now()}.log`;
-                  a.click();
+                  downloadBlob(blob, `app_logs_${Date.now()}.log`);
                   addLog('Info', 'LogViewer', 'ログファイルを出力保存しました。');
                 }}
                 handleClearLogs={() => {
