@@ -183,6 +183,43 @@ describe('メタデータ取得・中断の画面操作', () => {
     }
   });
 
+  it('staleになった一括結果と有効な失敗が混在してもstaleを成功にも失敗にも数えない', async () => {
+    let finishStaleBulk!: (value: Response) => void;
+    let finishRefresh!: (value: Response) => void;
+    const staleBulkRequest = new Promise<Response>((resolve) => { finishStaleBulk = resolve; });
+    const refreshRequest = new Promise<Response>((resolve) => { finishRefresh = resolve; });
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(() => staleBulkRequest)
+      .mockImplementationOnce(() => refreshRequest)
+      .mockResolvedValueOnce(response({ error: '有効な一括取得の失敗' }, 500));
+    stubMetadataFetch(fetchMock);
+    render(<App />);
+    addFiles('ABC-123.mp4', 'DEF-456.mp4');
+
+    try {
+      startFetch();
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      fireEvent.click(rowFor('ABC-123.mp4').getByTitle('個別メタデータ再取得'));
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+      await act(async () => {
+        finishStaleBulk(response({ data: { title: '反映してはいけない古い結果' } }));
+      });
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+
+      expect(await screen.findByText('メタデータ同期で失敗がありました (成功 0 / 2 件、失敗 1 件)')).toBeTruthy();
+      expect(screen.queryByText('メタデータ同期で失敗がありました (成功 1 / 2 件、失敗 1 件)')).toBeNull();
+      expect(rowFor('ABC-123.mp4').getByText('FETCHING')).toBeTruthy();
+      expect(rowFor('ABC-123.mp4').queryByText(/反映してはいけない古い結果/)).toBeNull();
+      expect(rowFor('DEF-456.mp4').getByRole('button', { name: /CONFLICT/ })).toBeTruthy();
+    } finally {
+      finishStaleBulk(response({ data: { title: '反映してはいけない古い結果' } }));
+      await act(async () => {
+        finishRefresh(response({ data: { title: '個別再取得の結果' } }));
+      });
+    }
+  });
+
   it.each([
     ['成功', () => response({ data: { title: '初期化前の古いタイトル' } })],
     ['HTTP失敗', () => response({ error: '初期化前の失敗' }, 500)],
@@ -326,12 +363,28 @@ describe('メタデータ取得・中断の画面操作', () => {
     render(<App />);
     addFiles('ABC-123.mp4', 'DEF-456.mp4');
     startFetch();
-    expect(await screen.findByText('メタデータ同期が完了しました (2 / 2 件)')).toBeTruthy();
+    expect(await screen.findByText('メタデータ同期で失敗がありました (成功 1 / 2 件、失敗 1 件)')).toBeTruthy();
     expect(rowFor('ABC-123.mp4').getByRole('button', { name: /CONFLICT/ })).toBeTruthy();
     expect(rowFor('DEF-456.mp4').getByText('READY')).toBeTruthy();
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(screen.queryByRole('button', { name: '中断する' })).toBeNull();
     expect(JSON.parse(localStorage.getItem(cacheKey)!)).not.toHaveProperty('ABC-123');
+  });
+
+  it('一括取得の全件失敗を完了表示にせず成功0件として伝える', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ error: 'サーバーエラー' }, 500))
+      .mockResolvedValueOnce(response({ error: '接続エラー' }, 503));
+    stubMetadataFetch(fetchMock);
+    render(<App />);
+    addFiles('ABC-123.mp4', 'DEF-456.mp4');
+
+    startFetch();
+
+    expect(await screen.findByText('メタデータ同期で失敗がありました (成功 0 / 2 件、失敗 2 件)')).toBeTruthy();
+    expect(screen.queryByText('メタデータ同期が完了しました (2 / 2 件)')).toBeNull();
+    expect(rowFor('ABC-123.mp4').getByRole('button', { name: /CONFLICT/ })).toBeTruthy();
+    expect(rowFor('DEF-456.mp4').getByRole('button', { name: /CONFLICT/ })).toBeTruthy();
   });
 
   it.each([

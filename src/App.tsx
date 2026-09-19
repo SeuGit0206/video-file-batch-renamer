@@ -530,6 +530,8 @@ export default function App() {
     const requestGeneration = fileListGeneration.current;
     setStatusMessage(`メタデータ照会中... (0 / ${totalFiles} 件)`);
     let completedCount = 0;
+    let successCount = 0;
+    let failureCount = 0;
     const effectiveConcurrency = Math.max(1, Math.min(3, Math.floor(maxConcurrency || 2)));
     addLog('Info', 'GetMetadataUseCase', `メタデータ並行取得を開始します (並行数: ${effectiveConcurrency})...`);
 
@@ -547,14 +549,17 @@ export default function App() {
           if (useCache && metadataCache[id]) {
             addLog('Info', 'LiteDbCacheAdapter', `キャッシュヒット: [${id}]`);
             const cachedMetadata = metadataCache[id];
-            setFiles(prev => prev.map(f => f.id === file.id && isLatestMetadataRequest(file.id, requestVersion) ? {
-              ...f,
-              status: 'completed',
-              metadata: cachedMetadata,
-              detailUrl: typeof cachedMetadata.detailUrl === 'string' && cachedMetadata.detailUrl
-                ? cachedMetadata.detailUrl
-                : `https://missav.ai/ja/${id.toLowerCase()}`
-            } : f));
+            if (isLatestMetadataRequest(file.id, requestVersion)) {
+              successCount++;
+              setFiles(prev => prev.map(f => f.id === file.id && isLatestMetadataRequest(file.id, requestVersion) ? {
+                ...f,
+                status: 'completed',
+                metadata: cachedMetadata,
+                detailUrl: typeof cachedMetadata.detailUrl === 'string' && cachedMetadata.detailUrl
+                  ? cachedMetadata.detailUrl
+                  : `https://missav.ai/ja/${id.toLowerCase()}`
+              } : f));
+            }
           } else {
             try {
               setBrowserState('navigating');
@@ -563,6 +568,7 @@ export default function App() {
               const res = await fetch(`/api/metadata?id=${encodeURIComponent(id)}`, { signal });
               const meta = await parseMetadataApiResponse(res);
               if (isLatestMetadataRequest(file.id, requestVersion)) {
+                successCount++;
                 updateMetadataCache(id, meta);
                 setFiles(prev => prev.map(f => f.id === file.id && isLatestMetadataRequest(file.id, requestVersion) ? {
                   ...f,
@@ -581,6 +587,7 @@ export default function App() {
                 return;
               }
               if (isLatestMetadataRequest(file.id, requestVersion)) {
+                failureCount++;
                 const msg = err instanceof Error ? err.message : String(err);
                 const classified = AppErrorClassifier.classify(err);
                 setCurrentErrorDetails(classified);
@@ -614,7 +621,9 @@ export default function App() {
       } else {
         setBrowserState('completed');
         if (fileListGeneration.current === requestGeneration) {
-          setStatusMessage(`メタデータ同期が完了しました (${completedCount} / ${totalFiles} 件)`);
+          setStatusMessage(failureCount > 0
+            ? `メタデータ同期で失敗がありました (成功 ${successCount} / ${totalFiles} 件、失敗 ${failureCount} 件)`
+            : `メタデータ同期が完了しました (${completedCount} / ${totalFiles} 件)`);
         }
       }
     }
