@@ -235,6 +235,44 @@ describe('ImportModal Component Unit Tests', () => {
     expect(screen.queryByText('インポートが完了しました')).not.toBeInTheDocument();
   });
 
+  it('検証失敗後に処理状態を解除して入力と再試行を可能にする', async () => {
+    const service = {
+      format: 'json',
+      supportsTarget: vi.fn(() => true),
+      parse: vi.fn().mockResolvedValue(parsedData),
+      validate: vi.fn(),
+      importData: vi.fn(),
+    } satisfies IImportService;
+    const { factory } = createImportDependencies(service);
+    const policy = {
+      validateData: vi.fn(() => ({
+        isValid: false,
+        errors: ['必須項目がありません'],
+        warnings: [],
+        recordCount: 0,
+      })),
+    } as unknown as typeof ImportValidationPolicy;
+
+    render(
+      <ImportModal
+        isOpen={true}
+        onClose={vi.fn()}
+        importFactory={factory}
+        validationPolicy={policy}
+      />
+    );
+
+    const textarea = screen.getByLabelText(/またはデータを直接貼り付け/i);
+    fireEvent.change(textarea, { target: { value: JSON.stringify(parsedData) } });
+    fireEvent.click(screen.getByRole('button', { name: /プレビュー & 差分確認/i }));
+
+    expect(await screen.findByText(/データの検証に失敗しました/)).toBeInTheDocument();
+    expect(screen.getByText(/必須項目がありません/)).toBeInTheDocument();
+    expect(textarea).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: /プレビュー & 差分確認/i })).not.toBeDisabled();
+    expect(service.importData).not.toHaveBeenCalled();
+  });
+
   it('インポート失敗を表示し、処理状態を解除して再操作できる', async () => {
     const service = {
       format: 'json',

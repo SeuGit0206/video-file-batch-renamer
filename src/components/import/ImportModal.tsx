@@ -264,7 +264,7 @@ export const ImportModal: React.FC<ImportModalProps> = React.memo(({
       const error = err instanceof Error ? err : new Error(String(err));
       setErrorMessage(error.message);
       onImportError?.(error);
-    } fontally: {
+    } finally {
       setIsProcessing(false);
     }
   }, [calculateDiff, factory, format, getCurrentDataForTarget, mode, onImportError, policy, rawTextContent, target]);
