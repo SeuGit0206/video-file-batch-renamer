@@ -1112,7 +1112,7 @@ EndGlobal`);
                   if (backup.settings?.renameTemplate) setRenameTemplate(backup.settings.renameTemplate);
                   if (backup.settings?.customRegex) setRegexPattern(backup.settings.customRegex);
                   if (backup.settings?.geminiApiKey) setGeminiApiKeyInput(backup.settings.geminiApiKey);
-                  if (Array.isArray(backup.fileList) && backup.fileList.length > 0) {
+                  if (Array.isArray(backup.fileList)) {
                     invalidateMetadataRequests();
                     setFiles(backup.fileList);
                   }

@@ -286,6 +286,35 @@ describe('メタデータ取得・中断の画面操作', () => {
     }
   });
 
+  it('空のバックアップ復元で現在のファイルを消去し、復元前の古い再取得結果を反映しない', async () => {
+    const oldMetadata = { title: '復元前の古いタイトル' };
+    let finishOld!: (value: Response) => void;
+    const oldRequest = new Promise<Response>((resolve) => { finishOld = resolve; });
+    const fetchMock = vi.fn().mockImplementation(() => oldRequest);
+    stubMetadataFetch(fetchMock);
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: 'バックアップ作成' }));
+    addFiles('ABC-123.mp4');
+
+    try {
+      fireEvent.click(rowFor('ABC-123.mp4').getByTitle('個別メタデータ再取得'));
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      expect(rowFor('ABC-123.mp4').getByText('FETCHING')).toBeTruthy();
+
+      fireEvent.click(screen.getByRole('button', { name: '復元' }));
+
+      expect(screen.queryAllByText('ABC-123.mp4')).toHaveLength(0);
+      expect(screen.getAllByText(/バックアップ \[.*\] に復元しました。/).length).toBeGreaterThan(0);
+
+      await act(async () => { finishOld(response({ data: oldMetadata })); });
+      expect(screen.queryAllByText('ABC-123.mp4')).toHaveLength(0);
+      expect(screen.queryByText(/復元前の古いタイトル/)).toBeNull();
+      expect(JSON.parse(localStorage.getItem(cacheKey) || '{}')).not.toHaveProperty('ABC-123');
+    } finally {
+      finishOld(response({ data: oldMetadata }));
+    }
+  });
+
   it('初期化後に同じファイルを再追加しても、古い取得Aではなく新しい取得Bだけを反映する', async () => {
     const oldMetadata = { title: '再追加前の古いタイトル', detailUrl: 'https://example.test/old' };
     const newMetadata = { title: '再追加後の新しいタイトル', detailUrl: 'https://example.test/new' };
