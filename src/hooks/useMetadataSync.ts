@@ -58,14 +58,10 @@ export function useMetadataSync() {
   }, []);
 
   const clearMetadataCache = useCallback(() => {
-    setMetadataCache({});
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        localStorage.removeItem(METADATA_CACHE_KEY);
-      }
-    } catch {
-      // ignore
+    if (typeof window !== 'undefined' && window.localStorage) {
+      localStorage.removeItem(METADATA_CACHE_KEY);
     }
+    setMetadataCache({});
   }, []);
 
   const clearClientCache = clearMetadataCache;

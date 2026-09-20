@@ -3,6 +3,27 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 import { SettingsPanel } from '../../src/components/SettingsPanel';
+import { useMetadataSync } from '../../src/hooks/useMetadataSync';
+
+function CacheSettingsHarness({ addLog }: { addLog: ReturnType<typeof vi.fn> }) {
+  const { clearClientCache } = useMetadataSync();
+
+  return (
+    <SettingsPanel
+      renameTemplate="{title}" setRenameTemplate={vi.fn()}
+      regexPattern="" setRegexPattern={vi.fn()}
+      skipDuplicates={true} setSkipDuplicates={vi.fn()}
+      useCache={true} setUseCache={vi.fn()}
+      showBrowser={false} setShowBrowser={vi.fn()}
+      cookiePath="cookies.json" setCookiePath={vi.fn()}
+      cacheSavePath="cache.db" setCacheSavePath={vi.fn()}
+      logRetentionDays={30} setLogRetentionDays={vi.fn()}
+      maxConcurrency={2} setMaxConcurrency={vi.fn()}
+      accessDelayMs={500} setAccessDelayMs={vi.fn()}
+      addLog={addLog} onClearClientCache={clearClientCache}
+    />
+  );
+}
 
 describe('SettingsPanel Component', () => {
   let originalFetch: typeof fetch;
@@ -141,6 +162,36 @@ describe('SettingsPanel Component', () => {
     await waitFor(() => {
       expect((screen.getByRole('button', { name: 'キャッシュ全消去' }) as HTMLButtonElement).disabled).toBe(false);
     });
+  });
+
+  it('クライアントキャッシュの永続化消去に失敗した場合は成功表示しない', async () => {
+    const cacheKey = 'video_renamer_meta_cache';
+    const cached = JSON.stringify({ 'ABC-123': { title: '保存済みタイトル' } });
+    localStorage.setItem(cacheKey, cached);
+    const addLog = vi.fn();
+
+    render(<CacheSettingsHarness addLog={addLog} />);
+    await screen.findByText('約 128.4 KB');
+
+    const originalSetItem = Storage.prototype.setItem;
+    const originalRemoveItem = Storage.prototype.removeItem;
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (key, value) {
+      if (key === cacheKey) throw new DOMException('ストレージへ書き込めません', 'SecurityError');
+      return originalSetItem.call(this, key, value);
+    });
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(function (key) {
+      if (key === cacheKey) throw new DOMException('ストレージから削除できません', 'SecurityError');
+      return originalRemoveItem.call(this, key);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'キャッシュ全消去' }));
+    fireEvent.click(screen.getByRole('button', { name: '全消去する' }));
+
+    expect(await screen.findByText(/キャッシュ消去に失敗しました:/)).toBeTruthy();
+    expect(screen.queryByText('キャッシュを全消去しました。')).toBeNull();
+    expect(localStorage.getItem(cacheKey)).toBe(cached);
+    expect(addLog).toHaveBeenCalledWith('Error', 'CacheManager', expect.stringContaining('キャッシュクリア失敗'));
+    expect(addLog).not.toHaveBeenCalledWith('Info', 'CacheManager', expect.any(String));
   });
 
   it.each([
