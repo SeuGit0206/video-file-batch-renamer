@@ -78,6 +78,7 @@ export const ImportModal: React.FC<ImportModalProps> = React.memo(({
   const [activeStep, setActiveStep] = useState<'upload' | 'preview' | 'success'>('upload');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileReadSequenceRef = useRef(0);
 
   // ターゲット変更ハンドラ
   const handleTargetChange = useCallback((newTarget: ImportTarget) => {
@@ -101,6 +102,7 @@ export const ImportModal: React.FC<ImportModalProps> = React.memo(({
 
     setSelectedFileName(file.name);
     setErrorMessage(null);
+    const readSequence = ++fileReadSequenceRef.current;
 
     // 拡張子からフォーマット推測
     if (file.name.endsWith('.csv')) {
@@ -111,12 +113,14 @@ export const ImportModal: React.FC<ImportModalProps> = React.memo(({
 
     const reader = new FileReader();
     reader.onload = (event) => {
+      if (fileReadSequenceRef.current !== readSequence) return;
       const text = event.target?.result;
       if (typeof text === 'string') {
         setRawTextContent(text);
       }
     };
     reader.onerror = () => {
+      if (fileReadSequenceRef.current !== readSequence) return;
       setErrorMessage('ファイルの読み込みに失敗しました。');
     };
     reader.readAsText(file);
@@ -308,6 +312,7 @@ export const ImportModal: React.FC<ImportModalProps> = React.memo(({
 
   // リセット・クローズ処理
   const handleResetAndClose = useCallback(() => {
+    fileReadSequenceRef.current++;
     setRawTextContent('');
     setSelectedFileName(null);
     setErrorMessage(null);
@@ -459,7 +464,10 @@ export const ImportModal: React.FC<ImportModalProps> = React.memo(({
                 id="raw-text-textarea"
                 rows={4}
                 value={rawTextContent}
-                onChange={(e) => setRawTextContent(e.target.value)}
+                onChange={(e) => {
+                  fileReadSequenceRef.current++;
+                  setRawTextContent(e.target.value);
+                }}
                 placeholder={format === 'json' ? '[{"id": "1", "name": "サンプル"}]' : 'id,name\n1,サンプル'}
                 disabled={isProcessing}
                 className="w-full p-2 border border-gray-300 text-xs font-mono rounded focus:ring-1 focus:ring-indigo-500"

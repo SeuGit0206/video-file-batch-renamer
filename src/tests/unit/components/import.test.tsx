@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom';
 import { ImportModal } from '../../../components/import/ImportModal';
@@ -173,6 +173,48 @@ describe('ImportModal Component Unit Tests', () => {
 
     fireEvent.click(csvBtn);
     expect(csvBtn.className).toContain('indigo');
+  });
+
+  it('後から選択したファイルの内容を、先の遅い読み込み結果で上書きしない', () => {
+    class ControlledFileReader {
+      static instances: ControlledFileReader[] = [];
+
+      onload: ((event: ProgressEvent<FileReader>) => void) | null = null;
+      onerror: ((event: ProgressEvent<FileReader>) => void) | null = null;
+
+      constructor() {
+        ControlledFileReader.instances.push(this);
+      }
+
+      readAsText = vi.fn();
+
+      complete(content: string) {
+        this.onload?.({ target: { result: content } } as unknown as ProgressEvent<FileReader>);
+      }
+    }
+
+    vi.stubGlobal('FileReader', ControlledFileReader as unknown as typeof FileReader);
+
+    try {
+      render(<ImportModal isOpen={true} onClose={vi.fn()} />);
+
+      const input = screen.getByLabelText('データファイルの選択');
+      const firstContent = JSON.stringify([{ id: 'first', title: '先のファイル' }]);
+      const secondContent = JSON.stringify([{ id: 'second', title: '後のファイル' }]);
+
+      fireEvent.change(input, { target: { files: [new File([firstContent], 'first.json')] } });
+      fireEvent.change(input, { target: { files: [new File([secondContent], 'second.json')] } });
+
+      expect(ControlledFileReader.instances).toHaveLength(2);
+
+      act(() => ControlledFileReader.instances[1].complete(secondContent));
+      act(() => ControlledFileReader.instances[0].complete(firstContent));
+
+      expect(screen.getByText('second.json')).toBeInTheDocument();
+      expect(screen.getByLabelText(/またはデータを直接貼り付け/i)).toHaveValue(secondContent);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('データ未入力でプレビュー実行するとエラーメッセージが表示される', async () => {
