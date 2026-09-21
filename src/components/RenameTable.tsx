@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useRef, useMemo, useCallback, useEffect } from 'react';
 import { 
   Search, RefreshCw, CheckCircle2, AlertCircle, XCircle, Video, Check, Trash2
 } from 'lucide-react';
@@ -18,6 +18,7 @@ interface RenameTableProps {
   fileSortOrder: 'asc' | 'desc';
   setFileSortOrder: (order: 'asc' | 'desc') => void;
   dragActive: boolean;
+  handleDragEnter: (e: React.DragEvent) => void;
   handleDragOver: (e: React.DragEvent) => void;
   handleDragLeave: (e: React.DragEvent) => void;
   handleDrop: (e: React.DragEvent) => void;
@@ -43,6 +44,7 @@ export const RenameTable: React.FC<RenameTableProps> = React.memo(({
   fileSortOrder,
   setFileSortOrder,
   dragActive,
+  handleDragEnter,
   handleDragOver,
   handleDragLeave,
   handleDrop,
@@ -56,6 +58,21 @@ export const RenameTable: React.FC<RenameTableProps> = React.memo(({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState<number>(0);
+
+  useEffect(() => {
+    const preventFileNavigation = (event: globalThis.DragEvent) => {
+      if (Array.from(event.dataTransfer?.types ?? []).includes('Files')) {
+        event.preventDefault();
+      }
+    };
+
+    window.addEventListener('dragover', preventFileNavigation);
+    window.addEventListener('drop', preventFileNavigation);
+    return () => {
+      window.removeEventListener('dragover', preventFileNavigation);
+      window.removeEventListener('drop', preventFileNavigation);
+    };
+  }, []);
 
   const allCount = files.length;
   const completedCount = useMemo(() => files.filter(f => f.status === 'completed').length, [files]);
@@ -239,6 +256,7 @@ export const RenameTable: React.FC<RenameTableProps> = React.memo(({
       <div 
         ref={containerRef}
         onScroll={onScroll}
+        onDragEnter={handleDragEnter}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
@@ -413,7 +431,7 @@ export const RenameTable: React.FC<RenameTableProps> = React.memo(({
 
         {/* Empty state overlay or Drag-and-drop placeholder */}
         {dragActive && (
-          <div className="absolute inset-0 bg-[#E4E3E0]/95 border-2 border-dashed border-[#141414] flex flex-col items-center justify-center gap-3">
+          <div className="pointer-events-none absolute inset-0 bg-[#E4E3E0]/95 border-2 border-dashed border-[#141414] flex flex-col items-center justify-center gap-3">
             <div className="bg-[#141414] p-4 text-white">
               <Video className="w-10 h-10" />
             </div>

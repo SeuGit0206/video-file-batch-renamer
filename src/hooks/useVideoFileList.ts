@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, type DragEvent, type Dispatch, type SetStateAction } from 'react';
+import { useState, useCallback, useMemo, useRef, type DragEvent, type Dispatch, type SetStateAction } from 'react';
 import type { VideoFile } from '../types';
 import { initialFiles as defaultInitialFiles } from '../data/mockData';
 import { isVideoFile, extractVideoFilesFromDataTransfer } from '../utils/fileSystemUtils';
@@ -50,6 +50,7 @@ export interface UseVideoFileListReturn {
   ) => VideoFile[];
 
   // --- Drag & Drop Event Handlers ---
+  handleDragEnter: (e: DragEvent) => void;
   handleDragOver: (e: DragEvent) => void;
   handleDragLeave: (e: DragEvent) => void;
   handleDrop: (
@@ -73,6 +74,7 @@ export function useVideoFileList(options?: UseVideoFileListOptions): UseVideoFil
   const [files, setFiles] = useState<VideoFile[]>(initial);
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState<boolean>(false);
+  const dragDepthRef = useRef(0);
 
   // 検索・フィルタ・ソート状態
   const [fileSearchQuery, setFileSearchQuery] = useState<string>('');
@@ -199,6 +201,13 @@ export function useVideoFileList(options?: UseVideoFileListOptions): UseVideoFil
   // ==========================================
   // 5. Drag & Drop Event Handlers
   // ==========================================
+  const handleDragEnter = useCallback((e: DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragDepthRef.current += 1;
+    setDragActive(true);
+  }, []);
+
   const handleDragOver = useCallback((e: DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -208,7 +217,10 @@ export function useVideoFileList(options?: UseVideoFileListOptions): UseVideoFil
   const handleDragLeave = useCallback((e: DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    setDragActive(false);
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) {
+      setDragActive(false);
+    }
   }, []);
 
   const handleDrop = useCallback(async (
@@ -218,6 +230,7 @@ export function useVideoFileList(options?: UseVideoFileListOptions): UseVideoFil
   ) => {
     e.preventDefault();
     e.stopPropagation();
+    dragDepthRef.current = 0;
     setDragActive(false);
 
     try {
@@ -264,6 +277,7 @@ export function useVideoFileList(options?: UseVideoFileListOptions): UseVideoFil
     handleResetFiles,
     handleClearFiles,
     addDroppedFiles,
+    handleDragEnter,
     handleDragOver,
     handleDragLeave,
     handleDrop,

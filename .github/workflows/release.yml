@@ -37,9 +37,11 @@ jobs:
       - name: Prepare Windows Distribution Package
         run: |
           mkdir -p release-dist
+          mkdir -p release-dist/scripts
           cp -r dist release-dist/
           cp package.json release-dist/
           cp package-lock.json release-dist/
+          cp scripts/start.cjs release-dist/scripts/start.cjs
           cp .env.example release-dist/
           cp README.md release-dist/
           cp CHANGELOG.md release-dist/
@@ -58,4 +60,3 @@ jobs:
             video-renamer-tool-${{ github.ref_name }}-windows.zip.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-

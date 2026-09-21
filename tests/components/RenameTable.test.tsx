@@ -40,6 +40,7 @@ describe('RenameTable Component', () => {
     fileSortOrder: 'asc' as const,
     setFileSortOrder: vi.fn(),
     dragActive: false,
+    handleDragEnter: vi.fn(),
     handleDragOver: vi.fn(),
     handleDragLeave: vi.fn(),
     handleDrop: vi.fn(),
@@ -59,6 +60,7 @@ describe('RenameTable Component', () => {
     const setFileSortBy = vi.fn();
     const setFileSortOrder = vi.fn();
     const handleDragOver = vi.fn();
+    const handleDragEnter = vi.fn();
     const handleDragLeave = vi.fn();
     const handleDrop = vi.fn();
     const handleSelectAll = vi.fn();
@@ -82,6 +84,7 @@ describe('RenameTable Component', () => {
         fileSortOrder="asc"
         setFileSortOrder={setFileSortOrder}
         dragActive={false}
+        handleDragEnter={handleDragEnter}
         handleDragOver={handleDragOver}
         handleDragLeave={handleDragLeave}
         handleDrop={handleDrop}

@@ -163,6 +163,7 @@ export default function App() {
     handleSelectAll,
     handleSelectFile,
     addDroppedFiles,
+    handleDragEnter,
     handleDragOver,
     handleDragLeave,
     handleDrop: handleDropFromHook,
@@ -1011,6 +1012,7 @@ EndGlobal`);
                   fileSortOrder={fileSortOrder}
                   setFileSortOrder={setFileSortOrder}
                   dragActive={dragActive}
+                  handleDragEnter={handleDragEnter}
                   handleDragOver={handleDragOver}
                   handleDragLeave={handleDragLeave}
                   handleDrop={handleDrop}
