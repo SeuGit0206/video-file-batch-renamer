@@ -178,7 +178,21 @@ describe('useAppSettings Hook', () => {
     expect(result.current.ruleEnabled).toBe(true);
   });
 
-  it('型が違う設定項目と配列でないrulesを無視する', () => {
+  it.each([
+    ['空のオブジェクト', {}],
+    ['空のsettings', { settings: {} }],
+  ])('%sは有効項目がないため false を返す', (_caseName, imported) => {
+    const { result } = renderHook(() => useAppSettings());
+
+    let success = true;
+    act(() => {
+      success = result.current.handleImportAppConfig(JSON.stringify(imported));
+    });
+
+    expect(success).toBe(false);
+  });
+
+  it('全項目が無効なら false を返し、既存設定を維持する', () => {
     const { result } = renderHook(() => useAppSettings());
 
     act(() => {
@@ -201,11 +215,48 @@ describe('useAppSettings Hook', () => {
       }));
     });
 
-    expect(success).toBe(true);
+    expect(success).toBe(false);
     expect(result.current.renameTemplate).toBe('{productId}_{title}');
     expect(result.current.maxConcurrency).toBe(3);
     expect(result.current.showBrowser).toBe(false);
     expect(result.current.rules).toEqual([]);
     expect(result.current.ruleEnabled).toBe(true);
+  });
+
+  it('有効項目と無効項目が混在する場合は有効項目だけを反映して true を返す', () => {
+    const { result } = renderHook(() => useAppSettings());
+
+    act(() => {
+      result.current.setRenameTemplate('{productId}_{title}');
+      result.current.setMaxConcurrency(3);
+    });
+
+    let success = false;
+    act(() => {
+      success = result.current.handleImportAppConfig(JSON.stringify({
+        settings: {
+          renameTemplate: '{date}_{title}',
+          maxConcurrency: 'not-a-number',
+        },
+      }));
+    });
+
+    expect(success).toBe(true);
+    expect(result.current.renameTemplate).toBe('{date}_{title}');
+    expect(result.current.maxConcurrency).toBe(3);
+  });
+
+  it.each([
+    ['rules', { rules: [] }],
+    ['ruleEnabled', { ruleEnabled: false }],
+  ])('%sだけが有効な場合も true を返す', (_caseName, imported) => {
+    const { result } = renderHook(() => useAppSettings());
+
+    let success = false;
+    act(() => {
+      success = result.current.handleImportAppConfig(JSON.stringify(imported));
+    });
+
+    expect(success).toBe(true);
   });
 });

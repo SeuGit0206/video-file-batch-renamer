@@ -150,25 +150,58 @@ export function useAppSettings() {
   const handleImportAppConfig = useCallback((configJson: string): boolean => {
     try {
       const parsed = JSON.parse(configJson);
+      let hasImportedSetting = false;
       if (parsed && typeof parsed === 'object' && parsed.settings) {
-        if (typeof parsed.settings.renameTemplate === 'string') setRenameTemplate(parsed.settings.renameTemplate);
-        if (typeof parsed.settings.regexPattern === 'string') setRegexPattern(parsed.settings.regexPattern);
-        if (typeof parsed.settings.skipDuplicates === 'boolean') setSkipDuplicates(parsed.settings.skipDuplicates);
-        if (typeof parsed.settings.useCache === 'boolean') setUseCache(parsed.settings.useCache);
-        if (typeof parsed.settings.cookiePath === 'string') setCookiePath(parsed.settings.cookiePath);
-        if (typeof parsed.settings.logRetentionDays === 'number') setLogRetentionDays(parsed.settings.logRetentionDays);
-        if (typeof parsed.settings.maxConcurrency === 'number') setMaxConcurrency(parsed.settings.maxConcurrency);
-        if (typeof parsed.settings.accessDelayMs === 'number') setAccessDelayMs(parsed.settings.accessDelayMs);
-        if (typeof parsed.settings.cacheSavePath === 'string') setCacheSavePath(parsed.settings.cacheSavePath);
-        if (typeof parsed.settings.showBrowser === 'boolean') setShowBrowser(parsed.settings.showBrowser);
+        if (typeof parsed.settings.renameTemplate === 'string') {
+          setRenameTemplate(parsed.settings.renameTemplate);
+          hasImportedSetting = true;
+        }
+        if (typeof parsed.settings.regexPattern === 'string') {
+          setRegexPattern(parsed.settings.regexPattern);
+          hasImportedSetting = true;
+        }
+        if (typeof parsed.settings.skipDuplicates === 'boolean') {
+          setSkipDuplicates(parsed.settings.skipDuplicates);
+          hasImportedSetting = true;
+        }
+        if (typeof parsed.settings.useCache === 'boolean') {
+          setUseCache(parsed.settings.useCache);
+          hasImportedSetting = true;
+        }
+        if (typeof parsed.settings.cookiePath === 'string') {
+          setCookiePath(parsed.settings.cookiePath);
+          hasImportedSetting = true;
+        }
+        if (typeof parsed.settings.logRetentionDays === 'number') {
+          setLogRetentionDays(parsed.settings.logRetentionDays);
+          hasImportedSetting = true;
+        }
+        if (typeof parsed.settings.maxConcurrency === 'number') {
+          setMaxConcurrency(parsed.settings.maxConcurrency);
+          hasImportedSetting = true;
+        }
+        if (typeof parsed.settings.accessDelayMs === 'number') {
+          setAccessDelayMs(parsed.settings.accessDelayMs);
+          hasImportedSetting = true;
+        }
+        if (typeof parsed.settings.cacheSavePath === 'string') {
+          setCacheSavePath(parsed.settings.cacheSavePath);
+          hasImportedSetting = true;
+        }
+        if (typeof parsed.settings.showBrowser === 'boolean') {
+          setShowBrowser(parsed.settings.showBrowser);
+          hasImportedSetting = true;
+        }
       }
       if (Array.isArray(parsed.rules)) {
         setRules(parsed.rules);
+        hasImportedSetting = true;
       }
       if (typeof parsed.ruleEnabled === 'boolean') {
         setRuleEnabled(parsed.ruleEnabled);
+        hasImportedSetting = true;
       }
-      return true;
+      return hasImportedSetting;
     } catch {
       return false;
     }
