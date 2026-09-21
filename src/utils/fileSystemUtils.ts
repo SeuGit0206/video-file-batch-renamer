@@ -110,19 +110,18 @@ export async function extractVideoFilesFromDataTransfer(
     const hasEntrySupport = items.some(item => typeof (item as unknown as { webkitGetAsEntry?: () => unknown }).webkitGetAsEntry === 'function');
 
     if (hasEntrySupport) {
-      for (const item of items) {
-        if (item.kind === 'file') {
-          const getEntry = (item as unknown as { webkitGetAsEntry?: () => FileSystemEntry | null }).webkitGetAsEntry;
-          const entry = getEntry ? getEntry.call(item) : null;
-          if (entry) {
-            const filesFromEntry = await traverseFileSystemEntry(entry);
-            results.push(...filesFromEntry);
-          } else {
-            const file = item.getAsFile();
-            if (file && isVideoFile(file.name)) {
-              results.push({ name: file.name, size: file.size });
-            }
-          }
+      const capturedItems = items.filter(item => item.kind === 'file').map(item => {
+        const getEntry = (item as unknown as { webkitGetAsEntry?: () => FileSystemEntry | null }).webkitGetAsEntry;
+        const entry = getEntry ? getEntry.call(item) : null;
+        return entry ? { entry } : { file: item.getAsFile() };
+      });
+
+      for (const captured of capturedItems) {
+        if (captured.entry) {
+          const filesFromEntry = await traverseFileSystemEntry(captured.entry);
+          results.push(...filesFromEntry);
+        } else if (captured.file && isVideoFile(captured.file.name)) {
+          results.push({ name: captured.file.name, size: captured.file.size });
         }
       }
       return results;

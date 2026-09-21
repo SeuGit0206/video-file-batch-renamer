@@ -36,6 +36,37 @@ describe('動画ファイルのドラッグ＆ドロップ', () => {
     expect(screen.queryByText('ここにファイルをドロップして追加')).toBeNull();
   });
 
+  it('dropイベント終了後にitemが読めなくなっても3つの動画を追加する', async () => {
+    render(<App />);
+    const dropZone = getDropZone();
+    const names = ['AAA-001.mp4', 'BBB-002.mp4', 'CCC-003.mp4'];
+    const files = names.map(name => new File(['video'], name, { type: 'video/mp4' }));
+    let readable = true;
+    const dataTransfer = {
+      types: ['Files'],
+      items: files.map(file => ({
+        kind: 'file',
+        webkitGetAsEntry: () => readable ? {
+          isFile: true,
+          isDirectory: false,
+          fullPath: `/${file.name}`,
+          file: (onSuccess: (value: File) => void) => queueMicrotask(() => onSuccess(file)),
+        } : null,
+        getAsFile: () => readable ? file : null,
+      })),
+      get files() { return readable ? files : []; },
+    };
+
+    fireEvent.drop(dropZone, { dataTransfer });
+    readable = false;
+
+    await waitFor(() => {
+      for (const name of names) {
+        expect(screen.getAllByText(name).length).toBeGreaterThan(0);
+      }
+    });
+  });
+
   it('ファイルdropだけは領域外でもブラウザ標準動作を防止する', () => {
     render(<App />);
     const event = new Event('drop', { bubbles: true, cancelable: true });
