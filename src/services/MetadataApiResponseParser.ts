@@ -2,7 +2,7 @@ import { AppErrorCode } from '../errors/AppErrorCodes';
 import { ScraperError } from '../errors/ScraperError';
 import type { ScrapedMetadata, ScraperDebugInfo } from '../types/scraper';
 
-interface MetadataApiResponseBody {
+interface MetadataApiResponseBody extends Partial<ScrapedMetadata> {
   error?: string;
   errorCode?: string;
   data?: ScrapedMetadata;
@@ -26,7 +26,10 @@ export async function parseMetadataApiResponse(response: Response): Promise<Scra
     });
   }
 
-  if (body?.error || !body?.data) {
+  const metadata = body?.data
+    ?? (typeof body?.productId === 'string' && body.productId ? body as ScrapedMetadata : undefined);
+
+  if (body?.error || !metadata) {
     throw new ScraperError(body?.error || 'メタデータが見つかりませんでした', {
       status: 404,
       code: (body?.errorCode as AppErrorCode | undefined) || AppErrorCode.METADATA_NOT_FOUND,
@@ -34,5 +37,5 @@ export async function parseMetadataApiResponse(response: Response): Promise<Scra
     });
   }
 
-  return body.data;
+  return metadata;
 }

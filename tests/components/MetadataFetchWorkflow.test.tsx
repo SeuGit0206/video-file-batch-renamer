@@ -61,8 +61,8 @@ describe('メタデータ取得・中断の画面操作', () => {
   });
 
   it('取得成功でファイルがREADYになり、結果をキャッシュへ保存する', async () => {
-    const metadata = { title: '取得テストのタイトル' };
-    const fetchMock = vi.fn().mockResolvedValue(response({ data: metadata }));
+    const metadata = { productId: 'ABC-123', title: '取得テストのタイトル' };
+    const fetchMock = vi.fn().mockResolvedValue(response(metadata));
     stubMetadataFetch(fetchMock);
     render(<App />);
     addFiles('ABC-123.mp4');
