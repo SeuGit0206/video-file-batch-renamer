@@ -131,7 +131,7 @@ export function generateBatchRenameScript(
     const escapedOrig = escapeBatchString(original);
     const escapedTarget = escapeBatchString(target);
     lines.push(
-      `echo [${changeIndex}] "${escapedOrig}" -> "${escapedTarget}"`,
+      `echo [${changeIndex}] "${escapedOrig}" to "${escapedTarget}"`,
       `if not exist "${escapedOrig}" (`,
       `    echo   [スキップ] 元ファイルが存在しません: "${escapedOrig}"`,
       `) else if exist "${escapedTarget}" (`,

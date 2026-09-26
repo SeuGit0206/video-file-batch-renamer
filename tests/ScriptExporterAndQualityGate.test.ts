@@ -1,4 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import {
   generatePowerShellRenameScript,
   generateBatchRenameScript,
@@ -105,6 +109,55 @@ describe('ScriptExporter & Quality Gate Suite', () => {
     it('should handle empty file list in batch script', () => {
       const script = generateBatchRenameScript([], getFormattedName);
       expect(script).toContain('リネーム対象のファイルがありません。');
+    });
+
+    it.runIf(process.platform === 'win32')('cmd.exeで2つの動画を内容を保ったままリネームする', () => {
+      const workDir = mkdtempSync(path.join(tmpdir(), 'video-renamer-batch-'));
+      const originalNames = [
+        'AAA-001 日本語 動画.mp4',
+        'BBB-002 (特別版) 動画.MP4',
+      ];
+      const targetNames = [
+        '日本語 タイトル AAA-001.mp4',
+        '日本語 タイトル (特別版) BBB-002.MP4',
+      ];
+      const contents = [
+        Buffer.from('first-video-content'.repeat(256)),
+        Buffer.from('second-video-content'.repeat(384)),
+      ];
+      const files = originalNames.map((originalName, index) => ({
+        id: `windows-batch-${index}`,
+        originalName,
+        status: 'completed' as const,
+      }));
+
+      try {
+        originalNames.forEach((name, index) => {
+          writeFileSync(path.join(workDir, name), contents[index]);
+        });
+        const script = generateBatchRenameScript(files, file => {
+          const index = originalNames.indexOf(file.originalName);
+          return targetNames[index];
+        });
+        const scriptPath = path.join(workDir, 'rename_videos.bat');
+        writeFileSync(scriptPath, `\uFEFF${script}`, 'utf8');
+
+        const result = spawnSync('cmd.exe', ['/d', '/c', 'rename_videos.bat < nul'], {
+          cwd: workDir,
+          encoding: 'utf8',
+        });
+
+        expect(result.status, result.stderr || result.stdout).toBe(0);
+        originalNames.forEach(name => expect(existsSync(path.join(workDir, name))).toBe(false));
+        targetNames.forEach((name, index) => {
+          const renamedPath = path.join(workDir, name);
+          expect(existsSync(renamedPath)).toBe(true);
+          expect(readFileSync(renamedPath).length).toBe(contents[index].length);
+          expect(readFileSync(renamedPath)).toEqual(contents[index]);
+        });
+      } finally {
+        rmSync(workDir, { recursive: true, force: true });
+      }
     });
   });
 
